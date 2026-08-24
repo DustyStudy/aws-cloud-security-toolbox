@@ -29,7 +29,9 @@ Also included for defense-in-depth / hygiene: a customer-managed KMS key
 encrypting the Lambda's log group and environment variables, a dead-letter
 SQS queue for failed async invocations, and a reserved concurrency limit
 (5) so this function can't consume the account's shared Lambda concurrency
-pool.
+pool. X-Ray tracing is on, log retention is 365 days, and there's an
+optional code-signing-config hook for accounts that enforce Lambda code
+signing.
 
 ## Prerequisites
 
@@ -70,6 +72,7 @@ all ARNs use `${AWS::Partition}`.
 | `LambdaCodeS3Bucket` | Yes | Bucket holding the packaged `lambda.zip` |
 | `LambdaCodeS3Key` | No | Key of the zip (default `auto-remediate-open-ssh-rdp/lambda.zip`) |
 | `NotificationEmail` | No | Email to subscribe to the SNS remediation topic |
+| `CodeSigningConfigArn` | No | ARN of an existing AWS Signer code-signing config to enforce on this Lambda |
 | `MaximumExecutionFrequency` | No | How often Config re-evaluates all groups (default 24h) |
 
 ## Notes

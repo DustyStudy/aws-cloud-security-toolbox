@@ -10,6 +10,17 @@ variable "notification_email" {
   default     = ""
 }
 
+variable "code_signing_config_arn" {
+  type        = string
+  description = <<-EOT
+    Optional ARN of an existing aws_lambda_code_signing_config to enforce
+    code-signature validation on this function. Leave null to skip (most
+    accounts don't have a signing pipeline set up; set this if yours does
+    and requires it).
+  EOT
+  default     = null
+}
+
 variable "maximum_execution_frequency" {
   type        = string
   description = "How often AWS Config re-evaluates all security groups against this rule."

@@ -123,6 +123,12 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
         Resource = aws_kms_key.log_encryption.arn
       },
+      {
+        # X-Ray does not support resource-level permissions for these actions.
+        Effect   = "Allow"
+        Action   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
+        Resource = "*"
+      },
     ]
   })
 }
@@ -142,6 +148,11 @@ resource "aws_lambda_function" "remediate" {
   filename                       = data.archive_file.lambda_zip.output_path
   source_code_hash               = data.archive_file.lambda_zip.output_base64sha256
   kms_key_arn                    = aws_kms_key.log_encryption.arn
+  code_signing_config_arn        = var.code_signing_config_arn
+
+  tracing_config {
+    mode = "Active"
+  }
 
   dead_letter_config {
     target_arn = aws_sqs_queue.dlq.arn
@@ -156,7 +167,7 @@ resource "aws_lambda_function" "remediate" {
 
 resource "aws_cloudwatch_log_group" "remediate" {
   name              = "/aws/lambda/${aws_lambda_function.remediate.function_name}"
-  retention_in_days = 90
+  retention_in_days = 365
   kms_key_id        = aws_kms_key.log_encryption.arn
 }
 

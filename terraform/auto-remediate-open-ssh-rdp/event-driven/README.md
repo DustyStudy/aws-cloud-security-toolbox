@@ -21,7 +21,9 @@ Also included for defense-in-depth / hygiene: a customer-managed KMS key
 encrypting the Lambda's log group and environment variables, a dead-letter
 SQS queue for failed async invocations, and a reserved concurrency limit
 (5) so this function can't consume the account's shared Lambda concurrency
-pool.
+pool. X-Ray tracing is on, log retention is 365 days, and there's an
+optional code-signing-config hook for accounts that enforce Lambda code
+signing.
 
 ## Usage
 
@@ -47,6 +49,7 @@ hardcoded; ARNs are built from `data.aws_partition.current.partition`.
 |---|---|---|
 | `name_prefix` | Prefix for all resource names | `sg-auto-remediate` |
 | `notification_email` | Email to subscribe to the SNS topic (optional) | `""` |
+| `code_signing_config_arn` | ARN of an existing `aws_lambda_code_signing_config` to enforce (optional) | `null` |
 
 ## Outputs
 

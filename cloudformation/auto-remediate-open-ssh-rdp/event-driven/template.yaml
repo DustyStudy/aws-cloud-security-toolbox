@@ -28,8 +28,18 @@ Parameters:
     Default: "auto-remediate-open-ssh-rdp/lambda.zip"
     Description: S3 key for the packaged Lambda deployment zip.
 
+  CodeSigningConfigArn:
+    Type: String
+    Default: ""
+    Description: >
+      Optional ARN of an existing AWS Signer AWS::Lambda::CodeSigningConfig
+      to enforce code-signature validation on this function. Leave blank
+      to skip (most accounts don't have a signing pipeline set up; set
+      this if yours does and requires it).
+
 Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
+  HasCodeSigningConfig: !Not [!Equals [!Ref CodeSigningConfigArn, ""]]
 
 Resources:
   RemediationTopic:
@@ -50,7 +60,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "${AWS::StackName}-remediation-dlq"
-      SqsManagedSseEnabled: true
+      KmsMasterKeyId: alias/aws/sqs
       MessageRetentionPeriod: 1209600 # 14 days - time to notice and investigate a failed remediation
 
   LogEncryptionKey:
@@ -127,6 +137,12 @@ Resources:
                   - kms:Decrypt
                   - kms:GenerateDataKey*
                 Resource: !GetAtt LogEncryptionKey.Arn
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                Resource: "*"
+                # X-Ray does not support resource-level permissions for these actions.
 
   RemediationFunction:
     Type: AWS::Lambda::Function
@@ -152,6 +168,9 @@ Resources:
       DeadLetterConfig:
         TargetArn: !GetAtt RemediationDLQ.Arn
       KmsKeyArn: !GetAtt LogEncryptionKey.Arn
+      CodeSigningConfigArn: !If [HasCodeSigningConfig, !Ref CodeSigningConfigArn, !Ref "AWS::NoValue"]
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref RemediationTopic
@@ -163,7 +182,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/${RemediationFunction}"
-      RetentionInDays: 90
+      RetentionInDays: 365
       KmsKeyId: !GetAtt LogEncryptionKey.Arn
 
   OpenIngressEventRule:
