@@ -17,6 +17,12 @@ to `0.0.0.0/0` / `::/0`, within seconds of the rule being created.
 Pair this with the sibling `../config-rule/` module to also catch
 pre-existing open rules and drift on a schedule.
 
+Also included for defense-in-depth / hygiene: a customer-managed KMS key
+encrypting the Lambda's log group and environment variables, a dead-letter
+SQS queue for failed async invocations, and a reserved concurrency limit
+(5) so this function can't consume the account's shared Lambda concurrency
+pool.
+
 ## Usage
 
 ```hcl

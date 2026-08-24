@@ -25,6 +25,12 @@ made via CloudFormation/Terraform directly rather than the EC2 API in a
 way CloudTrail's event pattern would match, or while the event-driven
 stack was temporarily disabled).
 
+Also included for defense-in-depth / hygiene: a customer-managed KMS key
+encrypting the Lambda's log group and environment variables, a dead-letter
+SQS queue for failed async invocations, and a reserved concurrency limit
+(5) so this function can't consume the account's shared Lambda concurrency
+pool.
+
 ## Prerequisites
 
 - **AWS Config must already be enabled** in the account/region (a

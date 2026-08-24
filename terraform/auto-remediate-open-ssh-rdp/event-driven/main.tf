@@ -20,6 +20,53 @@ resource "aws_sns_topic_subscription" "email" {
   endpoint  = var.notification_email
 }
 
+resource "aws_sqs_queue" "dlq" {
+  name                      = "${var.name_prefix}-remediation-dlq"
+  sqs_managed_sse_enabled   = true
+  message_retention_seconds = 1209600 # 14 days - time to notice and investigate a failed remediation
+}
+
+resource "aws_kms_key" "log_encryption" {
+  description         = "Encrypts the ${var.name_prefix} remediation Lambda's log group and environment variables."
+  enable_key_rotation = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableIAMUserPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowCloudWatchLogsUseOfKey"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*",
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-remediate-open-ssh-rdp"
+          }
+        }
+      },
+    ]
+  })
+}
+
+resource "aws_kms_alias" "log_encryption" {
+  name          = "alias/${var.name_prefix}-remediate-ssh-rdp"
+  target_key_id = aws_kms_key.log_encryption.key_id
+}
+
 resource "aws_iam_role" "lambda_exec" {
   name = "${var.name_prefix}-remediate-ssh-rdp-role"
 
@@ -50,32 +97,55 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
       },
       {
-        Effect = "Allow"
-        Action = [
-          "ec2:DescribeSecurityGroups",
-          "ec2:RevokeSecurityGroupIngress",
-        ]
+        # Describe is a read-only action and EC2 does not support
+        # resource-level permissions for it - "*" is required here.
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeSecurityGroups"]
         Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ec2:RevokeSecurityGroupIngress"]
+        Resource = "arn:${data.aws_partition.current.partition}:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:security-group/*"
       },
       {
         Effect   = "Allow"
         Action   = ["sns:Publish"]
         Resource = aws_sns_topic.remediation.arn
       },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.dlq.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource = aws_kms_key.log_encryption.arn
+      },
     ]
   })
 }
 
 resource "aws_lambda_function" "remediate" {
-  function_name    = "${var.name_prefix}-remediate-open-ssh-rdp"
-  description      = "Revokes SG ingress rules that open 22/3389 to the internet."
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "remediate_open_ssh_rdp.lambda_handler"
-  runtime          = "python3.12"
-  timeout          = 30
-  memory_size      = 128
-  filename         = data.archive_file.lambda_zip.output_path
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  # checkov:skip=CKV_AWS_117: Control-plane only Lambda (EC2/SNS/SQS APIs over
+  # public AWS endpoints, no customer VPC resources touched) - a VPC would add
+  # NAT gateway/VPC endpoint cost and complexity with no security benefit here.
+  function_name                  = "${var.name_prefix}-remediate-open-ssh-rdp"
+  description                    = "Revokes SG ingress rules that open 22/3389 to the internet."
+  role                           = aws_iam_role.lambda_exec.arn
+  handler                        = "remediate_open_ssh_rdp.lambda_handler"
+  runtime                        = "python3.12"
+  timeout                        = 30
+  memory_size                    = 128
+  reserved_concurrent_executions = 5
+  filename                       = data.archive_file.lambda_zip.output_path
+  source_code_hash               = data.archive_file.lambda_zip.output_base64sha256
+  kms_key_arn                    = aws_kms_key.log_encryption.arn
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.dlq.arn
+  }
 
   environment {
     variables = {
@@ -87,6 +157,7 @@ resource "aws_lambda_function" "remediate" {
 resource "aws_cloudwatch_log_group" "remediate" {
   name              = "/aws/lambda/${aws_lambda_function.remediate.function_name}"
   retention_in_days = 90
+  kms_key_id        = aws_kms_key.log_encryption.arn
 }
 
 resource "aws_cloudwatch_event_rule" "authorize_sg_ingress" {

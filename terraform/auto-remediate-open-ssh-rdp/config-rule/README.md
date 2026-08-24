@@ -20,6 +20,12 @@ revoke the offending rule.
 This catches security groups that were already open before this module
 was applied, and drift that slips past the event-driven path.
 
+Also included for defense-in-depth / hygiene: a customer-managed KMS key
+encrypting the Lambda's log group and environment variables, a dead-letter
+SQS queue for failed async invocations, and a reserved concurrency limit
+(5) so this function can't consume the account's shared Lambda concurrency
+pool.
+
 ## Prerequisites
 
 **AWS Config must already be enabled** in the account/region (a
