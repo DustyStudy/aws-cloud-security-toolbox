@@ -20,15 +20,19 @@ Each tool/template lives in its own directory, mirrored under both
 ```
 aws-cloud-security-toolbox/
 ├── cloudformation/
-│   └── auto-remediate-open-ssh-rdp/
-│       ├── event-driven/       # EventBridge + CloudTrail, near real-time
-│       ├── config-rule/        # AWS Config + SSM Automation, catches drift
-│       └── lambda/             # shared Lambda source (CFN's own copy)
-└── terraform/
-    └── auto-remediate-open-ssh-rdp/
-        ├── event-driven/
-        ├── config-rule/
-        └── lambda/              # shared Lambda source (Terraform zips this)
+│   ├── auto-remediate-open-ssh-rdp/
+│   │   ├── event-driven/       # EventBridge + CloudTrail, near real-time
+│   │   ├── config-rule/        # AWS Config + SSM Automation, catches drift
+│   │   └── lambda/             # shared Lambda source (CFN's own copy)
+│   └── scp-guardrails/         # deploys the SCPs below, attached to Organizations targets
+├── terraform/
+│   ├── auto-remediate-open-ssh-rdp/
+│   │   ├── event-driven/
+│   │   ├── config-rule/
+│   │   └── lambda/             # shared Lambda source (Terraform zips this)
+│   └── scp-guardrails/
+└── policies/
+    └── scp-guardrails/          # standalone SCP JSON, usable without CFN/TF
 ```
 
 ## Templates
@@ -50,6 +54,16 @@ two complementary paths — deploy one or both:
 Both paths send an SNS notification on every remediation and share the
 same Lambda logic. See each subdirectory's README for deployment
 instructions.
+
+### `scp-guardrails`
+
+A library of preventive Service Control Policies: deny root user actions,
+deny disabling CloudTrail/Config/GuardDuty/Security Hub, require IMDSv2,
+deny leaving the Organization, deny disabling S3 Block Public Access, and
+an optional region-restriction policy. Usable as standalone JSON from
+`policies/scp-guardrails/`, or deployed/attached to Organizations targets
+via `cloudformation/scp-guardrails/` or `terraform/scp-guardrails/`. See
+`policies/scp-guardrails/README.md` for full usage of all three.
 
 ## CI
 

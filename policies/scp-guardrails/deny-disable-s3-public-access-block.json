@@ -1,0 +1,77 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyDisableAccountBlockPublicAcls",
+      "Effect": "Deny",
+      "Action": "s3:PutAccountPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutAccountPublicAccessBlock:BlockPublicAcls": "false" }
+      }
+    },
+    {
+      "Sid": "DenyDisableAccountBlockPublicPolicy",
+      "Effect": "Deny",
+      "Action": "s3:PutAccountPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutAccountPublicAccessBlock:BlockPublicPolicy": "false" }
+      }
+    },
+    {
+      "Sid": "DenyDisableAccountIgnorePublicAcls",
+      "Effect": "Deny",
+      "Action": "s3:PutAccountPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutAccountPublicAccessBlock:IgnorePublicAcls": "false" }
+      }
+    },
+    {
+      "Sid": "DenyDisableAccountRestrictPublicBuckets",
+      "Effect": "Deny",
+      "Action": "s3:PutAccountPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutAccountPublicAccessBlock:RestrictPublicBuckets": "false" }
+      }
+    },
+    {
+      "Sid": "DenyDisableBucketBlockPublicAcls",
+      "Effect": "Deny",
+      "Action": "s3:PutBucketPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutBucketPublicAccessBlock:BlockPublicAcls": "false" }
+      }
+    },
+    {
+      "Sid": "DenyDisableBucketBlockPublicPolicy",
+      "Effect": "Deny",
+      "Action": "s3:PutBucketPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutBucketPublicAccessBlock:BlockPublicPolicy": "false" }
+      }
+    },
+    {
+      "Sid": "DenyDisableBucketIgnorePublicAcls",
+      "Effect": "Deny",
+      "Action": "s3:PutBucketPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutBucketPublicAccessBlock:IgnorePublicAcls": "false" }
+      }
+    },
+    {
+      "Sid": "DenyDisableBucketRestrictPublicBuckets",
+      "Effect": "Deny",
+      "Action": "s3:PutBucketPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "Bool": { "s3:PutBucketPublicAccessBlock:RestrictPublicBuckets": "false" }
+      }
+    }
+  ]
+}
