@@ -1,0 +1,205 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Continuous-compliance path: an AWS Config managed rule flags any security
+  group with SSH (22) or RDP (3389) open to the internet, and an SSM
+  Automation document auto-remediates by invoking the shared remediation
+  Lambda. Catches drift and rules created before this stack existed, not
+  just new API calls (see the sibling event-driven/ template for that).
+  Requires AWS Config already enabled in the account/region. Works in AWS
+  commercial and GovCloud.
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Default: ""
+    Description: >
+      Optional email address to subscribe to the SNS topic for remediation
+      notifications. Leave blank to skip the subscription.
+
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: >
+      S3 bucket containing the packaged Lambda deployment zip
+      (remediate_open_ssh_rdp.py zipped as lambda.zip). Must be in the same
+      region/partition as this stack.
+
+  LambdaCodeS3Key:
+    Type: String
+    Default: "auto-remediate-open-ssh-rdp/lambda.zip"
+    Description: S3 key for the packaged Lambda deployment zip.
+
+  MaximumExecutionFrequency:
+    Type: String
+    Default: TwentyFour_Hours
+    AllowedValues:
+      - One_Hour
+      - Three_Hours
+      - Six_Hours
+      - Twelve_Hours
+      - TwentyFour_Hours
+    Description: How often AWS Config re-evaluates all security groups against this rule.
+
+Conditions:
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
+
+Resources:
+  RemediationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-sg-remediation-notifications"
+      KmsMasterKeyId: alias/aws/sns
+
+  RemediationTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationEmail
+    Properties:
+      TopicArn: !Ref RemediationTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-remediate-ssh-rdp-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RemediateSSHRDPPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeSecurityGroups
+                  - ec2:RevokeSecurityGroupIngress
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref RemediationTopic
+
+  RemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-remediate-open-ssh-rdp"
+      Description: Revokes SG ingress rules that open 22/3389 to the internet.
+      Runtime: python3.12
+      Handler: remediate_open_ssh_rdp.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref RemediationTopic
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+
+  RemediationFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${RemediationFunction}"
+      RetentionInDays: 90
+
+  AutomationAssumeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-ssm-automation-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeRemediationLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt RemediationFunction.Arn
+
+  RemediationAutomationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "${AWS::StackName}-RemediateOpenSSHRDP"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: "0.3"
+        description: Invokes the remediation Lambda for a non-compliant security group.
+        assumeRole: "{{ AutomationAssumeRole }}"
+        parameters:
+          SecurityGroupId:
+            type: String
+            description: The non-compliant security group ID (Config passes this as RESOURCE_ID).
+          AutomationAssumeRole:
+            type: String
+            description: IAM role ARN used by SSM Automation to execute this document.
+        mainSteps:
+          - name: InvokeRemediationLambda
+            action: aws:invokeLambdaFunction
+            inputs:
+              FunctionName: !Ref RemediationFunction
+              InputPayload:
+                security_group_id: "{{ SecurityGroupId }}"
+
+  RestrictedPortsConfigRule:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: !Sub "${AWS::StackName}-restricted-ssh-rdp"
+      Description: Flags security groups that allow unrestricted inbound access to SSH (22) or RDP (3389).
+      Source:
+        Owner: AWS
+        SourceIdentifier: RESTRICTED_INCOMING_TRAFFIC
+      InputParameters:
+        blockedPort1: "22"
+        blockedPort2: "3389"
+      MaximumExecutionFrequency: !Ref MaximumExecutionFrequency
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::EC2::SecurityGroup"
+
+  AutoRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref RestrictedPortsConfigRule
+      TargetType: SSM_DOCUMENT
+      TargetId: !Ref RemediationAutomationDocument
+      Automatic: true
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 60
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt AutomationAssumeRole.Arn
+        SecurityGroupId:
+          ResourceValue:
+            Value: RESOURCE_ID
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the remediation Lambda function
+    Value: !GetAtt RemediationFunction.Arn
+
+  SNSTopicArn:
+    Description: ARN of the SNS topic used for remediation notifications
+    Value: !Ref RemediationTopic
+
+  ConfigRuleName:
+    Description: Name of the AWS Config rule
+    Value: !Ref RestrictedPortsConfigRule

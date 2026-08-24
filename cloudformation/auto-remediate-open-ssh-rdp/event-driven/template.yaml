@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Auto-revokes security group ingress rules that open SSH (22) or RDP (3389)
+  to the internet (0.0.0.0/0 or ::/0), in near real-time. Listens for the
+  AuthorizeSecurityGroupIngress management event via EventBridge (no
+  dedicated CloudTrail trail required - management events are available on
+  the default event bus automatically) and revokes only the offending
+  rule(s) the moment they're created. Works in AWS commercial and GovCloud.
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Default: ""
+    Description: >
+      Optional email address to subscribe to the SNS topic for remediation
+      notifications. Leave blank to skip the subscription (you can add one
+      later in the SNS console).
+
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: >
+      S3 bucket containing the packaged Lambda deployment zip
+      (remediate_open_ssh_rdp.py zipped as lambda.zip). Must be in the same
+      region/partition as this stack.
+
+  LambdaCodeS3Key:
+    Type: String
+    Default: "auto-remediate-open-ssh-rdp/lambda.zip"
+    Description: S3 key for the packaged Lambda deployment zip.
+
+Conditions:
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
+
+Resources:
+  RemediationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-sg-remediation-notifications"
+      KmsMasterKeyId: alias/aws/sns
+
+  RemediationTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationEmail
+    Properties:
+      TopicArn: !Ref RemediationTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-remediate-ssh-rdp-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RemediateSSHRDPPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeSecurityGroups
+                  - ec2:RevokeSecurityGroupIngress
+                Resource: "*"
+                # EC2 security group actions do not support resource-level
+                # permissions for RevokeSecurityGroupIngress in all partitions,
+                # so this is scoped via the action list instead.
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref RemediationTopic
+
+  RemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-remediate-open-ssh-rdp"
+      Description: Revokes SG ingress rules that open 22/3389 to the internet.
+      Runtime: python3.12
+      Handler: remediate_open_ssh_rdp.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref RemediationTopic
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+
+  RemediationFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${RemediationFunction}"
+      RetentionInDays: 90
+
+  OpenIngressEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-authorize-sg-ingress"
+      Description: Matches AuthorizeSecurityGroupIngress API calls captured by CloudTrail.
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          eventName:
+            - AuthorizeSecurityGroupIngress
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt RemediationFunction.Arn
+          Id: RemediationFunctionTarget
+
+  EventBridgeInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RemediationFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt OpenIngressEventRule.Arn
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the remediation Lambda function
+    Value: !GetAtt RemediationFunction.Arn
+
+  SNSTopicArn:
+    Description: ARN of the SNS topic used for remediation notifications
+    Value: !Ref RemediationTopic
+
+  EventRuleArn:
+    Description: ARN of the EventBridge rule watching for AuthorizeSecurityGroupIngress
+    Value: !GetAtt OpenIngressEventRule.Arn
