@@ -161,8 +161,8 @@ resource "aws_s3_bucket_policy" "access_logs" {
       Action    = "s3:PutObject"
       Resource  = "${aws_s3_bucket.access_logs.arn}/*"
       Condition = {
-        ArnLike       = { "aws:SourceArn" = aws_s3_bucket.trail.arn }
-        StringEquals  = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+        ArnLike      = { "aws:SourceArn" = aws_s3_bucket.trail.arn }
+        StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
       }
     }]
   })
