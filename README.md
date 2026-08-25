@@ -28,9 +28,15 @@ aws-cloud-security-toolbox/
 │   ├── root-activity-alarm/    # EventBridge -> SNS on any root activity
 │   ├── iam-credential-hygiene/ # scheduled deactivation of stale IAM keys
 │   ├── ec2-isolation-runbook/  # on-demand SSM runbook to quarantine a compromised instance
-│   └── security-baseline-new-accounts/
-│       ├── member-baseline/    # StackSet: GuardDuty+SecurityHub+Config for every account in an OU
-│       └── organization-trail/ # one-time org-wide CloudTrail trail
+│   ├── security-baseline-new-accounts/
+│   │   ├── member-baseline/    # StackSet: GuardDuty+SecurityHub+Config for every account in an OU
+│   │   └── organization-trail/ # one-time org-wide CloudTrail trail
+│   ├── ai-ml-guardrails/        # deploys the AI/ML SCPs below, attached to Organizations targets
+│   ├── bedrock-logging-enforcement/  # scheduled check/restore of Bedrock invocation logging
+│   ├── ai-agent-iam-auditor/    # detective scan for over-permissioned Bedrock/SageMaker agent roles
+│   └── sagemaker-notebook-exposure/
+│       ├── event-driven/       # EventBridge + CloudTrail, near real-time
+│       └── config-rule/        # AWS Config + SSM Automation, catches drift
 ├── terraform/
 │   ├── auto-remediate-open-ssh-rdp/
 │   │   ├── event-driven/
@@ -40,11 +46,18 @@ aws-cloud-security-toolbox/
 │   ├── root-activity-alarm/
 │   ├── iam-credential-hygiene/
 │   ├── ec2-isolation-runbook/
-│   └── security-baseline-new-accounts/
-│       ├── member-baseline/
-│       └── organization-trail/
+│   ├── security-baseline-new-accounts/
+│   │   ├── member-baseline/
+│   │   └── organization-trail/
+│   ├── ai-ml-guardrails/
+│   ├── bedrock-logging-enforcement/
+│   ├── ai-agent-iam-auditor/
+│   └── sagemaker-notebook-exposure/
+│       ├── event-driven/
+│       └── config-rule/
 └── policies/
-    └── scp-guardrails/          # standalone SCP JSON, usable without CFN/TF
+    ├── scp-guardrails/          # standalone SCP JSON, usable without CFN/TF
+    └── ai-ml-guardrails/        # standalone AI/ML SCP JSON, usable without CFN/TF
 ```
 
 ## Templates
@@ -113,6 +126,54 @@ baseline automatically, including accounts created later.
   covering every account automatically. Deployed once, separately from
   the per-account baseline, since CloudTrail rejects a duplicate org trail
   per account.
+
+### `ai-ml-guardrails`
+
+A library of preventive Service Control Policies for AI/ML workloads:
+protect Bedrock's audit trail (deny disabling invocation logging, deny
+deleting Guardrails), optionally restrict Bedrock model invocation to an
+allow-listed set of foundation models, and lock down SageMaker notebook
+instances (no direct internet access, no root access, VPC required, KMS
+encryption required). Same structure as `scp-guardrails` — standalone
+JSON from `policies/ai-ml-guardrails/`, or deploy/attach via
+`cloudformation/ai-ml-guardrails/` or `terraform/ai-ml-guardrails/`.
+
+### `bedrock-logging-enforcement`
+
+Checks the account's Bedrock model invocation logging configuration on a
+schedule and re-enables it (to a managed S3 bucket and CloudWatch Logs
+group) if it's missing or was disabled, notifying via SNS. This is the
+only audit trail of what prompts/completions actually passed through
+your models — pairs with `ai-ml-guardrails`'s logging-protection SCP for
+a prevent-and-detect combination.
+
+### `ai-agent-iam-auditor`
+
+A scheduled, **detective-only** scan of every IAM role's trust policy for
+AI/agent service principals (Bedrock, SageMaker, Amazon Q). Any matching
+role carrying overly-broad permissions (full wildcard actions, a
+service-wide wildcard on a sensitive service, or `AdministratorAccess`)
+is flagged in an SNS summary. Never modifies anything — agentic workflows
+often get built with broad "just in case" permissions, and an agent
+steered into misusing them (via prompt injection or bad task design) has
+a much larger blast radius than a human operator with the same role.
+
+### `sagemaker-notebook-exposure`
+
+Detects SageMaker notebook instances with **direct internet access** or
+**root access** enabled — effectively an unmanaged EC2 instance with AWS
+credentials attached, reachable from the internet — and remediates them.
+Two-phase by necessity, since SageMaker only allows changing those
+settings while a notebook is stopped:
+
+- **`event-driven/`** — CloudTrail-triggered stop, then SageMaker's own
+  "Notebook Instance State Change" event triggers the actual
+  reconfiguration once the notebook has stopped.
+- **`config-rule/`** — AWS Config managed rule
+  (`SAGEMAKER_NOTEBOOK_NO_DIRECT_INTERNET_ACCESS`) + SSM Automation,
+  catches pre-existing/drifted notebooks. Covers direct internet access
+  only — there's no equivalent Config managed rule for root access yet,
+  so `event-driven/` remains the only coverage for that.
 
 ## CI
 
