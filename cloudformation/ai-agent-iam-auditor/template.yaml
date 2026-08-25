@@ -33,6 +33,17 @@ Parameters:
       IAM service prefixes where "<service>:*" combined with Resource "*"
       is flagged as over-broad.
 
+  CheckBedrockAgentActionGroups:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Also discover and audit the Lambda execution roles behind every
+      Bedrock Agent's action groups, not just roles whose trust policy
+      directly names an AI service. This is usually the higher-risk role
+      of the two, since it's what actually executes when the agent
+      decides to act. Only the DRAFT version of each agent is checked.
+
   LambdaCodeS3Bucket:
     Type: String
     Description: >
@@ -151,6 +162,7 @@ Resources:
                   - iam:ListAttachedRolePolicies
                   - iam:ListRolePolicies
                   - iam:GetRolePolicy
+                  - iam:GetRole
                 Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
               - Effect: Allow
                 Action:
@@ -161,6 +173,19 @@ Resources:
                 # attached to roles this auditor inspects. If your org also
                 # attaches customer-managed policies to AI/agent roles,
                 # broaden this to include arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/*.
+              - Effect: Allow
+                Action:
+                  - bedrock:ListAgents
+                  - bedrock:ListAgentActionGroups
+                  - bedrock:GetAgentActionGroup
+                Resource: "*"
+                # Discovers Bedrock Agent action groups so their Lambda
+                # execution roles can be audited too - these APIs don't
+                # support resource-level scoping to a specific agent.
+              - Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
               - Effect: Allow
                 Action:
                   - sns:Publish
@@ -210,6 +235,7 @@ Resources:
           SNS_TOPIC_ARN: !Ref AuditTopic
           AI_SERVICE_PRINCIPALS: !Join [",", !Ref AIServicePrincipals]
           SENSITIVE_WILDCARD_SERVICES: !Join [",", !Ref SensitiveWildcardServices]
+          CHECK_BEDROCK_AGENT_ACTION_GROUPS: !Ref CheckBedrockAgentActionGroups
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref LambdaCodeS3Key

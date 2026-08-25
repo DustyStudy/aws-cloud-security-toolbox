@@ -34,6 +34,7 @@ aws-cloud-security-toolbox/
 │   ├── ai-ml-guardrails/        # deploys the AI/ML SCPs below, attached to Organizations targets
 │   ├── bedrock-logging-enforcement/  # scheduled check/restore of Bedrock invocation logging
 │   ├── ai-agent-iam-auditor/    # detective scan for over-permissioned Bedrock/SageMaker agent roles
+│   ├── bedrock-cost-guardrails/ # Budget + Cost Anomaly Detection scoped to Bedrock spend
 │   └── sagemaker-notebook-exposure/
 │       ├── event-driven/       # EventBridge + CloudTrail, near real-time
 │       └── config-rule/        # AWS Config + SSM Automation, catches drift
@@ -52,6 +53,7 @@ aws-cloud-security-toolbox/
 │   ├── ai-ml-guardrails/
 │   ├── bedrock-logging-enforcement/
 │   ├── ai-agent-iam-auditor/
+│   ├── bedrock-cost-guardrails/
 │   └── sagemaker-notebook-exposure/
 │       ├── event-driven/
 │       └── config-rule/
@@ -157,6 +159,22 @@ is flagged in an SNS summary. Never modifies anything — agentic workflows
 often get built with broad "just in case" permissions, and an agent
 steered into misusing them (via prompt injection or bad task design) has
 a much larger blast radius than a human operator with the same role.
+
+Also discovers and audits the Lambda execution roles behind every
+Bedrock Agent's action groups — usually the higher-risk role of the two,
+since it's what actually executes when the agent decides to act, and
+it's invisible to the trust-policy scan alone (its own trust policy
+names `lambda.amazonaws.com`, not Bedrock).
+
+### `bedrock-cost-guardrails`
+
+Guards against the most common real-world agentic AI incident: not a
+breach, but an agent stuck in a loop calling itself or a tool
+repeatedly, running up a large bill overnight before anyone notices. No
+Lambda — combines a monthly AWS Budget (a hard, predictable ceiling on
+Bedrock spend) with Cost Anomaly Detection (ML-based against your
+account's own spend history, catching a spike before it reaches the
+budget ceiling).
 
 ### `sagemaker-notebook-exposure`
 

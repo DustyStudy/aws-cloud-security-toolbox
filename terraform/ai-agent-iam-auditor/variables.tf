@@ -28,6 +28,18 @@ variable "sensitive_wildcard_services" {
   default     = ["iam", "ec2", "s3", "kms", "organizations", "sts"]
 }
 
+variable "check_bedrock_agent_action_groups" {
+  type        = bool
+  description = <<-EOT
+    Also discover and audit the Lambda execution roles behind every
+    Bedrock Agent's action groups, not just roles whose trust policy
+    directly names an AI service. This is usually the higher-risk role
+    of the two, since it's what actually executes when the agent decides
+    to act. Only the DRAFT version of each agent is checked.
+  EOT
+  default     = true
+}
+
 variable "code_signing_config_arn" {
   type        = string
   description = "Optional ARN of an existing aws_lambda_code_signing_config to enforce on this function. Leave null to skip."

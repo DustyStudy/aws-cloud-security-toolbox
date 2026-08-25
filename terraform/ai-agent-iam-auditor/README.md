@@ -16,15 +16,32 @@ speed, with no human in the loop.
 
 ## How it works
 
+There are two independent discovery paths, because they catch different roles:
+
+**1. Trust-policy scan**
 1. A scheduled EventBridge rule (default: daily, via `schedule_expression`)
    invokes the Lambda.
 2. The Lambda lists every IAM role and checks each one's trust policy for
    a `Principal.Service` matching `ai_service_principals`.
-3. For every matching role, it inspects attached AWS-managed and inline
-   policies for a full wildcard action, a service-wide wildcard on one of
-   `sensitive_wildcard_services` combined with `Resource: "*"`, or the
-   `AdministratorAccess` managed policy.
-4. Any role with findings is included in a single SNS summary.
+
+**2. Bedrock Agent action-group scan**
+3. Separately, the Lambda lists every Bedrock Agent and, for each one's
+   `DRAFT` version, lists its action groups. Each action group backed by
+   a Lambda executor has that Lambda's execution role resolved and added
+   to the scan. This matters because an Agent's *own* role is often
+   fairly narrow, but its action groups hand real execution off to
+   separate Lambda functions — and those Lambdas' execution roles are
+   trusted by `lambda.amazonaws.com`, not Bedrock, so they're invisible
+   to the trust-policy scan even though they're what actually runs when
+   the agent decides to act. Set `check_bedrock_agent_action_groups = false`
+   to disable this path.
+
+**Both paths converge on the same check:** for every discovered role, the
+Lambda inspects attached AWS-managed and inline policies for a full
+wildcard action, a service-wide wildcard on one of
+`sensitive_wildcard_services` combined with `Resource: "*"`, or the
+`AdministratorAccess` managed policy. Any role with findings is included
+in a single SNS summary, noting how it was discovered.
 
 ## Usage
 
@@ -48,6 +65,7 @@ Works the same in GovCloud.
 | `schedule_expression` | EventBridge schedule | `rate(1 day)` |
 | `ai_service_principals` | Trust-policy service principals treated as "AI/agent" | Bedrock, SageMaker, Q, Q Business |
 | `sensitive_wildcard_services` | Services where `<service>:*` + `Resource: "*"` is flagged | iam, ec2, s3, kms, organizations, sts |
+| `check_bedrock_agent_action_groups` | Also audit Bedrock Agent action-group Lambda roles | `true` |
 | `code_signing_config_arn` | ARN of an existing code-signing config (optional) | `null` |
 
 ## Outputs
@@ -59,6 +77,13 @@ Works the same in GovCloud.
 
 ## Notes
 
+- The Bedrock Agent action-group scan only checks each agent's **`DRAFT`**
+  version. A production agent invoked via an alias pointing at a
+  different, published version could have action groups the DRAFT
+  version doesn't reflect — a known scope limitation. If your org
+  publishes agent versions independently from DRAFT and wants this
+  covered, extend the Lambda to also call `ListAgentAliases`/
+  `GetAgentVersion` for each alias's target version.
 - Only **AWS-managed** policies are evaluated by default (the Lambda's
   IAM permissions are scoped to `arn:...:iam::aws:policy/*`). If your org
   attaches customer-managed policies to AI/agent roles too, broaden the

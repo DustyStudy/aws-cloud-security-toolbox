@@ -113,6 +113,7 @@ resource "aws_iam_role_policy" "lambda_exec" {
           "iam:ListAttachedRolePolicies",
           "iam:ListRolePolicies",
           "iam:GetRolePolicy",
+          "iam:GetRole",
         ]
         Resource = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/*"
       },
@@ -124,6 +125,23 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Effect   = "Allow"
         Action   = ["iam:GetPolicy", "iam:GetPolicyVersion"]
         Resource = "arn:${data.aws_partition.current.partition}:iam::aws:policy/*"
+      },
+      {
+        # Discovers Bedrock Agent action groups so their Lambda execution
+        # roles can be audited too - these APIs don't support
+        # resource-level scoping to a specific agent.
+        Effect = "Allow"
+        Action = [
+          "bedrock:ListAgents",
+          "bedrock:ListAgentActionGroups",
+          "bedrock:GetAgentActionGroup",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:GetFunction"]
+        Resource = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:*"
       },
       {
         Effect   = "Allow"
@@ -175,9 +193,10 @@ resource "aws_lambda_function" "audit" {
 
   environment {
     variables = {
-      SNS_TOPIC_ARN               = aws_sns_topic.audit.arn
-      AI_SERVICE_PRINCIPALS       = join(",", var.ai_service_principals)
-      SENSITIVE_WILDCARD_SERVICES = join(",", var.sensitive_wildcard_services)
+      SNS_TOPIC_ARN                     = aws_sns_topic.audit.arn
+      AI_SERVICE_PRINCIPALS             = join(",", var.ai_service_principals)
+      SENSITIVE_WILDCARD_SERVICES       = join(",", var.sensitive_wildcard_services)
+      CHECK_BEDROCK_AGENT_ACTION_GROUPS = tostring(var.check_bedrock_agent_action_groups)
     }
   }
 }
