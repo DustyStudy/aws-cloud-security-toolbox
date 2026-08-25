@@ -397,6 +397,11 @@ resource "aws_db_parameter_group" "gateway" {
 }
 
 resource "aws_db_instance" "gateway" {
+  # checkov:skip=CKV_AWS_157: Multi-AZ is exposed as a toggle
+  # (var.enable_multi_az, default false) rather than forced on -
+  # roughly doubles RDS cost, which doesn't match this reference
+  # deployment's db.t4g.micro sizing. Set the variable true for
+  # production.
   identifier        = "${var.name_prefix}-db"
   engine            = "postgres"
   engine_version    = "16.13"
@@ -418,15 +423,14 @@ resource "aws_db_instance" "gateway" {
   skip_final_snapshot       = !var.enable_deletion_protection
   final_snapshot_identifier = var.enable_deletion_protection ? "${var.name_prefix}-db-final" : null
 
-  auto_minor_version_upgrade = true
-  # Multi-AZ roughly doubles RDS cost - defaults false to match this
-  # reference deployment's db.t4g.micro sizing. Set true for production.
+  auto_minor_version_upgrade          = true
   multi_az                            = var.enable_multi_az
   iam_database_authentication_enabled = true
   # The gateway itself connects with the password in store.postgres_url,
   # not IAM tokens - this only makes IAM auth available as an
   # additional option, it doesn't change current behavior.
   performance_insights_enabled          = true
+  performance_insights_kms_key_id       = aws_kms_key.gateway.arn
   performance_insights_retention_period = 7
   enabled_cloudwatch_logs_exports       = ["postgresql", "upgrade"]
   monitoring_interval                   = 60
@@ -463,6 +467,8 @@ resource "aws_s3_bucket" "alb_logs" {
   # checkov:skip=CKV_AWS_145: ALB access log delivery only supports
   # SSE-S3 for the destination bucket, not SSE-KMS - a documented AWS
   # limitation, not an oversight.
+  # checkov:skip=CKV2_AWS_62: Pure write-once access-log target - nothing
+  # downstream consumes events from it, so notifications add no value here.
   bucket = "${var.name_prefix}-alb-logs-${data.aws_caller_identity.current.account_id}"
 }
 

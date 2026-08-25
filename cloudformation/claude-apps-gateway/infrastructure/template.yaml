@@ -455,6 +455,15 @@ Resources:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_157
+            comment: >-
+              Multi-AZ is exposed as a toggle (EnableMultiAz parameter,
+              default false) rather than forced on - roughly doubles RDS
+              cost, which doesn't match this reference deployment's
+              db.t4g.micro sizing. Set the parameter true for production.
     Properties:
       DBInstanceIdentifier: !Sub "${AWS::StackName}-db"
       Engine: postgres
@@ -481,6 +490,7 @@ Resources:
       # available as an additional option, it doesn't change current
       # behavior.
       EnablePerformanceInsights: true
+      PerformanceInsightsKMSKeyId: !GetAtt GatewayKey.Arn
       PerformanceInsightsRetentionPeriod: 7
       EnableCloudwatchLogsExports:
         - postgresql
@@ -502,6 +512,8 @@ Resources:
             comment: Cross-region replication omitted for this starter template - add if your compliance regime requires geographic redundancy.
           - id: CKV_AWS_145
             comment: ALB access log delivery only supports SSE-S3 for the destination bucket, not SSE-KMS - a documented AWS limitation, not an oversight.
+          - id: CKV2_AWS_62
+            comment: Pure write-once access-log target - nothing downstream consumes events from it, so notifications add no value here.
     Properties:
       BucketName: !Sub "${AWS::StackName}-alb-logs-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
