@@ -4,8 +4,8 @@ Description: >
   control plane that centralizes identity (via your OIDC IdP), policy,
   telemetry, and spend caps for Claude Code and Claude Desktop, routing
   inference to Amazon Bedrock. Provisions the ECS Fargate track: an
-  internal ALB, ECS service, RDS for PostgreSQL, Secrets Manager, ECR,
-  and a least-privilege IAM task role. This is a working example for
+  internal ALB, ECS service, RDS for PostgreSQL, Secrets Manager, and a
+  least-privilege IAM task role. This is a working example for
   customer-managed infrastructure, mirroring Anthropic's own AWS
   deployment guide (https://code.claude.com/docs/en/claude-apps-gateway-on-aws)
   - review and adapt before treating it as a supported production
@@ -39,15 +39,11 @@ Parameters:
     Type: String
     Description: >
       ARN of an ACM certificate (imported or issued via AWS Private CA)
-      for the gateway's internal hostname.
-
-  GatewayPublicHostname:
-    Type: String
-    Description: >
-      The internal DNS hostname developers will reach the gateway at
-      (e.g. claude-gateway.internal.example.com) - typically a Route 53
-      private-hosted-zone record aliased to this stack's ALB. Must match
-      the certificate above and the public_url in gateway.yaml.
+      for the gateway's internal hostname. Choose the hostname first
+      (e.g. claude-gateway.internal.example.com - typically a Route 53
+      private-hosted-zone record you'll alias to this stack's
+      LoadBalancerDnsName output after deploying) since it must match
+      both this certificate and gateway.yaml's public_url.
 
   EcrRepositoryUri:
     Type: String
@@ -55,6 +51,13 @@ Parameters:
       Repository URI output by ../ecr/template.yaml, after you've built
       and pushed the gateway image into it (e.g.
       123456789012.dkr.ecr.us-east-1.amazonaws.com/claude-gateway).
+
+  EcrKeyArn:
+    Type: String
+    Description: >
+      ARN of the KMS key encrypting the ECR repository (the ecr/
+      stack's EcrKeyArn output) - the ECS execution role needs
+      kms:Decrypt on it to pull the image at task start.
 
   ContainerImageTag:
     Type: String
@@ -83,7 +86,16 @@ Parameters:
     Type: String
     Default: "true"
     AllowedValues: ["true", "false"]
-    Description: RDS deletion protection. Set to false only for throwaway/test deployments.
+    Description: RDS and ALB deletion protection. Set to false only for throwaway/test deployments.
+
+  EnableMultiAz:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Enable RDS Multi-AZ. Roughly doubles RDS cost - defaults false to
+      match this reference deployment's db.t4g.micro sizing. Set true
+      for production.
 
   OidcClientSecretValue:
     Type: String
@@ -104,11 +116,49 @@ Parameters:
 
 Conditions:
   ShouldCreateBedrockVpcEndpoint: !Equals [!Ref CreateBedrockVpcEndpoint, "true"]
+  ShouldEnableDeletionProtection: !Equals [!Ref EnableDeletionProtection, "true"]
 
 Resources:
   # ---------------------------------------------------------------------
+  # KMS - one customer-managed key for Secrets Manager, ECR (referenced
+  # by the ecr/ stack via its own key policy grant), and the ECS log
+  # group.
+  # ---------------------------------------------------------------------
+  GatewayKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "Encrypts the ${AWS::StackName} gateway's secrets and log group."
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableIAMUserPermissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: AllowCloudWatchLogsUseOfKey
+            Effect: Allow
+            Principal:
+              Service: !Sub "logs.${AWS::Region}.amazonaws.com"
+            Action:
+              - kms:Encrypt*
+              - kms:Decrypt*
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:Describe*
+            Resource: "*"
+            Condition:
+              ArnLike:
+                kms:EncryptionContext:aws:logs:arn: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${AWS::StackName}"
+
+  # ---------------------------------------------------------------------
   # Security groups - chain the traffic path: corporate CIDR -> ALB:443 ->
-  # gateway:8080 -> Postgres:5432. Nothing else is reachable.
+  # gateway:8080 -> Postgres:5432. Egress is scoped to exactly what each
+  # tier needs, not a blanket allow-all (CloudFormation creates an
+  # implicit allow-all egress rule when SecurityGroupEgress is omitted,
+  # so every group below sets it explicitly).
   # ---------------------------------------------------------------------
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -120,12 +170,33 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: !Ref CorporateCidr
+          Description: HTTPS from corporate network
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          DestinationSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Forward to the gateway service
 
   GatewaySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Claude apps gateway ECS service - reachable from the ALB only.
       VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: >-
+            HTTPS to Bedrock/IdP/ECR/Secrets Manager/CloudWatch Logs -
+            destinations aren't knowable in advance, so this is scoped
+            to the port, not the destination.
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId: !Ref DbSecurityGroup
+          Description: Postgres to the gateway's store
 
   GatewaySecurityGroupIngressFromAlb:
     Type: AWS::EC2::SecurityGroupIngress
@@ -135,12 +206,14 @@ Resources:
       FromPort: 8080
       ToPort: 8080
       SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: Accept traffic forwarded by the ALB
 
   DbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Claude apps gateway RDS for PostgreSQL - reachable from the gateway service only.
       VpcId: !Ref VpcId
+      SecurityGroupEgress: []
 
   DbSecurityGroupIngressFromGateway:
     Type: AWS::EC2::SecurityGroupIngress
@@ -150,13 +223,23 @@ Resources:
       FromPort: 5432
       ToPort: 5432
       SourceSecurityGroupId: !Ref GatewaySecurityGroup
+      Description: Postgres from the gateway service
 
   BedrockVpcEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Condition: ShouldCreateBedrockVpcEndpoint
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV2_AWS_5
+            comment: >-
+              Attached via SecurityGroupIds on BedrockRuntimeVpcEndpoint
+              below - Checkov's static analysis doesn't always resolve
+              conditional-resource attachments.
     Properties:
       GroupDescription: Claude apps gateway Bedrock VPC endpoint - reachable from the gateway service only.
       VpcId: !Ref VpcId
+      SecurityGroupEgress: []
 
   BedrockVpcEndpointIngressFromGateway:
     Type: AWS::EC2::SecurityGroupIngress
@@ -167,6 +250,7 @@ Resources:
       FromPort: 443
       ToPort: 443
       SourceSecurityGroupId: !Ref GatewaySecurityGroup
+      Description: HTTPS from the gateway service
 
   BedrockRuntimeVpcEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -244,6 +328,30 @@ Resources:
                 # Named by exact ARN (via !Ref to each Secret resource),
                 # not a "gateway-*" wildcard - in a shared account a
                 # prefix glob would also match unrelated secrets.
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                Resource:
+                  - !GetAtt GatewayKey.Arn
+                  - !Ref EcrKeyArn
+                # GatewayKey decrypts the three secrets above; EcrKeyArn
+                # (from the ecr/ stack) is needed to pull the
+                # KMS-encrypted image at task start.
+
+  RdsEnhancedMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-rds-monitoring-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 
   # ---------------------------------------------------------------------
   # Secrets Manager - three secrets the gateway resolves at boot via
@@ -252,35 +360,77 @@ Resources:
   # ---------------------------------------------------------------------
   DbMasterPasswordSecret:
     Type: AWS::SecretsManager::Secret
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV2_AWS_57
+            comment: >-
+              Automatic rotation isn't wired up in this reference
+              deployment - rotating this secret would need the
+              AWS-provided RDS single-user rotation Lambda deployed
+              alongside a VPC-reachable network path to the database.
+              See this tool's README for how to add it.
     Properties:
       Name: !Sub "${AWS::StackName}-db-master-password"
       Description: Auto-generated master password for the gateway's RDS instance. Never exposed outside Secrets Manager and the RDS engine.
+      KmsKeyId: !Ref GatewayKey
       GenerateSecretString:
         PasswordLength: 32
         ExcludePunctuation: true
 
   GatewayJwtSecret:
     Type: AWS::SecretsManager::Secret
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV2_AWS_57
+            comment: >-
+              This secret has no third-party rotation story - it's an
+              opaque HMAC key, not a credential a managed rotation
+              Lambda understands. Rotate manually by generating a new
+              value and forcing a new ECS deployment; see this tool's
+              README.
     Properties:
       Name: !Sub "${AWS::StackName}-jwt-secret"
       Description: Signing key for gateway session JWTs (session.jwt_secret in gateway.yaml).
+      KmsKeyId: !Ref GatewayKey
       GenerateSecretString:
         PasswordLength: 32
         ExcludePunctuation: true
 
   GatewayOidcClientSecret:
     Type: AWS::SecretsManager::Secret
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV2_AWS_57
+            comment: >-
+              This value is issued by your IdP, not AWS - automatic
+              rotation would require coordinating a secret change with
+              the identity provider's own admin console/API, outside
+              what a Secrets Manager rotation Lambda can do unattended.
     Properties:
       Name: !Sub "${AWS::StackName}-oidc-client-secret"
       Description: OAuth client secret from the IdP's gateway app registration (oidc.client_secret in gateway.yaml).
+      KmsKeyId: !Ref GatewayKey
       SecretString: !Ref OidcClientSecretValue
 
   GatewayPostgresUrlSecret:
     Type: AWS::SecretsManager::Secret
-    DependsOn: Database
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV2_AWS_57
+            comment: >-
+              A derived composite string (embeds the master password),
+              not a standalone rotatable credential - it should be
+              regenerated whenever the master password rotates, which
+              this reference deployment doesn't automate. See this
+              tool's README.
     Properties:
       Name: !Sub "${AWS::StackName}-postgres-url"
       Description: Full connection string for the gateway's store (store.postgres_url in gateway.yaml).
+      KmsKeyId: !Ref GatewayKey
       SecretString: !Sub
         - "postgres://gateway:{{resolve:secretsmanager:${DbMasterPasswordSecret}:SecretString}}@${DbEndpoint}:5432/claude_gateway?sslmode=verify-full"
         - DbEndpoint: !GetAtt Database.Endpoint.Address
@@ -309,7 +459,7 @@ Resources:
     Properties:
       DBInstanceIdentifier: !Sub "${AWS::StackName}-db"
       Engine: postgres
-      EngineVersion: "16"
+      EngineVersion: "16.13"
       DBInstanceClass: !Ref DbInstanceClass
       AllocatedStorage: !Ref DbAllocatedStorageGB
       DBName: claude_gateway
@@ -322,7 +472,79 @@ Resources:
       StorageEncrypted: true
       PubliclyAccessible: false
       BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
       DeletionProtection: !Ref EnableDeletionProtection
+      MultiAZ: !Ref EnableMultiAz
+      AutoMinorVersionUpgrade: true
+      IAMDatabaseAuthenticationEnabled: true
+      # The gateway itself connects with the password in
+      # store.postgres_url, not IAM tokens - this only makes IAM auth
+      # available as an additional option, it doesn't change current
+      # behavior.
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      EnableCloudwatchLogsExports:
+        - postgresql
+        - upgrade
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RdsEnhancedMonitoringRole.Arn
+
+  # ---------------------------------------------------------------------
+  # S3 bucket for ALB access logs
+  # ---------------------------------------------------------------------
+  AlbLogsBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_18
+            comment: This IS the access-log destination bucket - giving it its own access logs would be recursive.
+          - id: CKV_AWS_144
+            comment: Cross-region replication omitted for this starter template - add if your compliance regime requires geographic redundancy.
+          - id: CKV_AWS_145
+            comment: ALB access log delivery only supports SSE-S3 for the destination bucket, not SSE-KMS - a documented AWS limitation, not an oversight.
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-alb-logs-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAccessLogs
+            Status: Enabled
+            ExpirationInDays: 365
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  AlbLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AlbLogsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowElbLogDeliveryServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: logdelivery.elasticloadbalancing.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${AlbLogsBucket.Arn}/AWSLogs/${AWS::AccountId}/*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+            # Covers current-generation regions. A handful of
+            # older/opt-in regions instead require the region-specific
+            # ELB service account as principal - see
+            # https://docs.aws.amazon.com/elasticloadbalancing/latest/application/enable-access-logging.html#access-logging-bucket-permissions
+            # if access logs don't appear after deploying.
 
   # ---------------------------------------------------------------------
   # ECS Fargate
@@ -331,12 +553,16 @@ Resources:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub "${AWS::StackName}"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
 
   GatewayLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/ecs/${AWS::StackName}"
-      RetentionInDays: 90
+      RetentionInDays: 365
+      KmsKeyId: !GetAtt GatewayKey.Arn
       # The gateway's stderr carries both its audit events and its
       # operational logs - align this retention with your audit policy.
 
@@ -354,9 +580,16 @@ Resources:
         OperatingSystemFamily: LINUX
       ExecutionRoleArn: !GetAtt ExecutionRole.Arn
       TaskRoleArn: !GetAtt TaskRole.Arn
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: gateway
           Image: !Sub "${EcrRepositoryUri}:${ContainerImageTag}"
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: tmp
+              ContainerPath: /tmp
+              ReadOnly: false
           PortMappings:
             - ContainerPort: 8080
           Secrets:
@@ -375,6 +608,7 @@ Resources:
 
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: AlbLogsBucketPolicy
     Properties:
       Name: !Sub "${AWS::StackName}"
       Scheme: internal
@@ -392,6 +626,14 @@ Resources:
           # A stream that goes quiet during long prompt processing or
           # extended thinking with no streamed output is cut mid-response
           # at the ALB's 60-second default.
+        - Key: deletion_protection.enabled
+          Value: !Ref EnableDeletionProtection
+        - Key: routing.http.drop_invalid_header_fields.enabled
+          Value: "true"
+        - Key: access_logs.s3.enabled
+          Value: "true"
+        - Key: access_logs.s3.bucket
+          Value: !Ref AlbLogsBucket
 
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -450,7 +692,7 @@ Resources:
 
 Outputs:
   LoadBalancerDnsName:
-    Description: Internal ALB DNS name - alias GatewayPublicHostname to this in your private hosted zone.
+    Description: Internal ALB DNS name - alias your chosen gateway hostname to this in your private hosted zone.
     Value: !GetAtt LoadBalancer.DNSName
 
   EcsClusterName:
@@ -480,3 +722,11 @@ Outputs:
   DatabaseEndpoint:
     Description: RDS endpoint address (already embedded in PostgresUrlSecretArn's value - exposed here for reference/troubleshooting)
     Value: !GetAtt Database.Endpoint.Address
+
+  KmsKeyArn:
+    Description: ARN of the KMS key encrypting secrets and the log group
+    Value: !GetAtt GatewayKey.Arn
+
+  AlbLogsBucketName:
+    Description: Name of the S3 bucket holding ALB access logs
+    Value: !Ref AlbLogsBucket

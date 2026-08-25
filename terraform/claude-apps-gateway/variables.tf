@@ -50,8 +50,14 @@ variable "db_allocated_storage_gb" {
 
 variable "enable_deletion_protection" {
   type        = bool
-  description = "RDS deletion protection. Set to false only for throwaway/test deployments - when true, a final snapshot is taken on destroy instead of skipped."
+  description = "RDS and ALB deletion protection. Set to false only for throwaway/test deployments - when true, a final RDS snapshot is taken on destroy instead of skipped."
   default     = true
+}
+
+variable "enable_multi_az" {
+  type        = bool
+  description = "Enable RDS Multi-AZ. Roughly doubles RDS cost - defaults false to match this reference deployment's db.t4g.micro sizing. Set true for production."
+  default     = false
 }
 
 variable "oidc_client_secret_value" {

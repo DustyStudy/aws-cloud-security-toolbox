@@ -42,3 +42,13 @@ output "database_endpoint" {
   description = "RDS endpoint address (already embedded in postgres_url_secret_arn's value - exposed here for reference/troubleshooting)."
   value       = aws_db_instance.gateway.address
 }
+
+output "kms_key_arn" {
+  description = "ARN of the KMS key encrypting secrets, the ECR repository, and the log group."
+  value       = aws_kms_key.gateway.arn
+}
+
+output "alb_logs_bucket_name" {
+  description = "Name of the S3 bucket holding ALB access logs."
+  value       = aws_s3_bucket.alb_logs.id
+}

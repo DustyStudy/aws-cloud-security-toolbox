@@ -45,6 +45,17 @@ first, push your image, then deploy `infrastructure/`.
 - **An optional `bedrock-runtime` interface VPC endpoint** so inference
   traffic never leaves the AWS network (on by default —
   `CreateBedrockVpcEndpoint=false` to skip)
+- **KMS encryption throughout** — a customer-managed key for Secrets
+  Manager, the ECR repository, and the ECS log group; RDS storage
+  encryption; access logs delivered to a dedicated, encrypted S3 bucket
+- **RDS hardening** — Performance Insights, Enhanced Monitoring,
+  automatic minor-version upgrades, IAM database authentication enabled
+  (available alongside password auth, not replacing it), PostgreSQL log
+  export to CloudWatch, and an optional Multi-AZ toggle
+- **ECS/ALB hardening** — Container Insights, a read-only root
+  filesystem on the gateway container (with a writable `/tmp` via an
+  ephemeral volume), ALB deletion protection, and invalid-header
+  dropping
 
 ## Prerequisites
 
@@ -76,6 +87,8 @@ aws cloudformation deploy \
 
 ECR_URI=$(aws cloudformation describe-stacks --stack-name claude-gateway-ecr \
   --query 'Stacks[0].Outputs[?OutputKey==`EcrRepositoryUri`].OutputValue' --output text)
+ECR_KEY_ARN=$(aws cloudformation describe-stacks --stack-name claude-gateway-ecr \
+  --query 'Stacks[0].Outputs[?OutputKey==`EcrKeyArn`].OutputValue' --output text)
 ```
 
 ### Phase 2 — build and push the image
@@ -97,6 +110,11 @@ docker push "${ECR_URI}:v1"
 
 ### Phase 3 — everything else
 
+Choose your gateway's hostname before this step (e.g.
+`claude-gateway.internal.example.com`) — it must match the ACM
+certificate, your IdP app's redirect URI, and `public_url` in
+`gateway.yaml`:
+
 ```bash
 aws cloudformation deploy \
   --template-file infrastructure/template.yaml \
@@ -107,13 +125,13 @@ aws cloudformation deploy \
       PrivateSubnetIds=subnet-aaaa,subnet-bbbb \
       CorporateCidr=10.0.0.0/8 \
       AcmCertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/xxxx \
-      GatewayPublicHostname=claude-gateway.internal.example.com \
       EcrRepositoryUri="$ECR_URI" \
+      EcrKeyArn="$ECR_KEY_ARN" \
       ContainerImageTag=v1 \
       OidcClientSecretValue='<your-idp-client-secret>'
 ```
 
-Then alias `GatewayPublicHostname` to the stack's `LoadBalancerDnsName`
+Then alias your chosen hostname to the stack's `LoadBalancerDnsName`
 output in your Route 53 private hosted zone, and update the OIDC app's
 redirect URI to match if you hadn't finalized it yet.
 
@@ -129,14 +147,15 @@ managed settings file — see
 | `PrivateSubnetIds` | Yes | At least 2 private subnets, different AZs |
 | `CorporateCidr` | Yes | CIDR allowed to reach the ALB on 443 |
 | `AcmCertificateArn` | Yes | ACM certificate for the gateway hostname |
-| `GatewayPublicHostname` | Yes | Internal DNS hostname for the gateway |
 | `EcrRepositoryUri` | Yes | Output of the `ecr/` stack, after pushing an image |
+| `EcrKeyArn` | Yes | `EcrKeyArn` output of the `ecr/` stack - grants the execution role decrypt access to pull the image |
 | `ContainerImageTag` | No | Image tag to deploy (default `latest`) |
 | `OidcClientSecretValue` | Yes | Your IdP app's OAuth client secret (`NoEcho`) |
 | `DesiredCount` | No | Number of gateway tasks (default `1`) |
 | `DbInstanceClass` | No | RDS instance class (default `db.t4g.micro`) |
 | `DbAllocatedStorageGB` | No | RDS storage in GB (default `20`) |
-| `EnableDeletionProtection` | No | RDS deletion protection (default `true`) |
+| `EnableDeletionProtection` | No | RDS + ALB deletion protection (default `true`) |
+| `EnableMultiAz` | No | RDS Multi-AZ - roughly doubles RDS cost (default `false`) |
 | `CreateBedrockVpcEndpoint` | No | Create the `bedrock-runtime` interface endpoint (default `true`) |
 
 ## Notes
@@ -148,6 +167,16 @@ managed settings file — see
 - **Rotating the JWT secret or OIDC client secret** requires a task
   restart to pick up the new value (ECS injects secrets at container
   start, not on a running task) — force a new deployment after rotating.
+- **Automatic secret rotation isn't wired up** for any of the four
+  secrets in this reference deployment. The DB master password is the
+  one with a real, implementable path (AWS's RDS single-user rotation
+  Lambda, deployed alongside network access to the database); the JWT
+  secret can only be rotated by generating a new value and forcing a new
+  ECS deployment; the OIDC client secret requires coordinating with your
+  IdP's own admin console, which a Secrets Manager rotation Lambda can't
+  do unattended; the Postgres URL secret is a derived string that would
+  need regenerating whenever the master password rotates. Each secret's
+  `Metadata.checkov.skip` comment in the template repeats this.
 - **A `gateway.yaml` edit means a rebuild under a new image tag.** The
   config is baked into the image, and the ECR repository's
   `IMMUTABLE` tag setting means an existing tag can't be silently
@@ -158,8 +187,8 @@ managed settings file — see
   form. See [Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock#1-submit-use-case-details).
 - This deployment intentionally omits Route 53 record creation, since
   hosted zone structure varies too much per org to template generically —
-  alias `GatewayPublicHostname` to the ALB's `LoadBalancerDnsName` output
-  yourself.
+  alias your chosen gateway hostname to the ALB's `LoadBalancerDnsName`
+  output yourself.
 - For an EKS-based deployment instead of ECS Fargate, see
   [the source guide's EKS track](https://code.claude.com/docs/en/claude-apps-gateway-on-aws) —
   this repo doesn't include Kubernetes manifests.

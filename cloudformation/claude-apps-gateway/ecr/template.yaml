@@ -16,6 +16,26 @@ Parameters:
     Description: Name for the ECR repository (also used as the stack/resource name prefix for the infrastructure stack - keep them matching for clarity).
 
 Resources:
+  EcrKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "Encrypts the ${RepositoryName} ECR repository."
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableIAMUserPermissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+            # The ECS execution role in ../infrastructure/template.yaml
+            # is granted kms:Decrypt on this key's ARN via its own IAM
+            # policy - no separate service-principal statement is
+            # needed here for that, since it's an IAM-side grant, not a
+            # cross-account one.
+
   EcrRepository:
     Type: AWS::ECR::Repository
     Properties:
@@ -23,6 +43,9 @@ Resources:
       ImageTagMutability: IMMUTABLE
       ImageScanningConfiguration:
         ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: KMS
+        KmsKey: !GetAtt EcrKey.Arn
 
 Outputs:
   EcrRepositoryUri:
@@ -34,3 +57,10 @@ Outputs:
   EcrRepositoryName:
     Description: Name of the ECR repository (for docker/aws ecr CLI commands)
     Value: !Ref EcrRepository
+
+  EcrKeyArn:
+    Description: >
+      ARN of the KMS key encrypting this repository - grant your ECS
+      execution role kms:Decrypt on this ARN (already done automatically
+      in ../infrastructure/template.yaml if you deploy that stack as-is).
+    Value: !GetAtt EcrKey.Arn

@@ -17,10 +17,57 @@
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
+data "aws_elb_service_account" "main" {}
+
+# ---------------------------------------------------------------------
+# KMS - one customer-managed key for Secrets Manager, ECR, and the
+# gateway's CloudWatch log group.
+# ---------------------------------------------------------------------
+resource "aws_kms_key" "gateway" {
+  description         = "Encrypts the ${var.name_prefix} gateway's secrets, ECR repository, and log group."
+  enable_key_rotation = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableIAMUserPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowCloudWatchLogsUseOfKey"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*",
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.name_prefix}"
+          }
+        }
+      },
+    ]
+  })
+}
+
+resource "aws_kms_alias" "gateway" {
+  name          = "alias/${var.name_prefix}"
+  target_key_id = aws_kms_key.gateway.key_id
+}
 
 # ---------------------------------------------------------------------
 # Security groups - chain the traffic path: corporate CIDR -> ALB:443 ->
-# gateway:8080 -> Postgres:5432. Nothing else is reachable.
+# gateway:8080 -> Postgres:5432. Egress is scoped to exactly what each
+# tier needs, not a blanket allow-all.
 # ---------------------------------------------------------------------
 resource "aws_security_group" "alb" {
   name_prefix = "${var.name_prefix}-alb-"
@@ -35,16 +82,19 @@ resource "aws_security_group" "alb" {
     cidr_blocks = [var.corporate_cidr]
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   lifecycle {
     create_before_destroy = true
   }
+}
+
+resource "aws_security_group_rule" "alb_to_gateway" {
+  description              = "Forward to the gateway service"
+  type                     = "egress"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.alb.id
+  source_security_group_id = aws_security_group.gateway.id
 }
 
 resource "aws_security_group" "gateway" {
@@ -52,25 +102,43 @@ resource "aws_security_group" "gateway" {
   description = "Claude apps gateway ECS service - reachable from the ALB only."
   vpc_id      = var.vpc_id
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   lifecycle {
     create_before_destroy = true
   }
 }
 
 resource "aws_security_group_rule" "gateway_from_alb" {
+  description              = "Accept traffic forwarded by the ALB"
   type                     = "ingress"
   from_port                = 8080
   to_port                  = 8080
   protocol                 = "tcp"
   security_group_id        = aws_security_group.gateway.id
   source_security_group_id = aws_security_group.alb.id
+}
+
+resource "aws_security_group_rule" "gateway_egress_https" {
+  # Bedrock (if not using the VPC endpoint), the IdP, ECR, Secrets
+  # Manager, and CloudWatch Logs are all reached over HTTPS to
+  # destinations that aren't knowable in advance, so this is scoped to
+  # the port, not the destination.
+  description       = "HTTPS to Bedrock/IdP/ECR/Secrets Manager/CloudWatch Logs"
+  type              = "egress"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  security_group_id = aws_security_group.gateway.id
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+resource "aws_security_group_rule" "gateway_to_db" {
+  description              = "Postgres to the gateway's store"
+  type                     = "egress"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.gateway.id
+  source_security_group_id = aws_security_group.db.id
 }
 
 resource "aws_security_group" "db" {
@@ -84,6 +152,7 @@ resource "aws_security_group" "db" {
 }
 
 resource "aws_security_group_rule" "db_from_gateway" {
+  description              = "Postgres from the gateway service"
   type                     = "ingress"
   from_port                = 5432
   to_port                  = 5432
@@ -93,6 +162,9 @@ resource "aws_security_group_rule" "db_from_gateway" {
 }
 
 resource "aws_security_group" "bedrock_endpoint" {
+  # checkov:skip=CKV2_AWS_5: Attached via security_group_ids on
+  # aws_vpc_endpoint.bedrock_runtime below - Checkov's static analysis
+  # doesn't resolve the count-conditional index reference used there.
   count = var.create_bedrock_vpc_endpoint ? 1 : 0
 
   name_prefix = "${var.name_prefix}-bedrock-endpoint-"
@@ -107,6 +179,7 @@ resource "aws_security_group" "bedrock_endpoint" {
 resource "aws_security_group_rule" "bedrock_endpoint_from_gateway" {
   count = var.create_bedrock_vpc_endpoint ? 1 : 0
 
+  description              = "HTTPS from the gateway service"
   type                     = "ingress"
   from_port                = 443
   to_port                  = 443
@@ -190,23 +263,48 @@ resource "aws_iam_role_policy" "read_gateway_secrets" {
 
   policy = jsonencode({
     Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+        Resource = [
+          aws_secretsmanager_secret.jwt.arn,
+          aws_secretsmanager_secret.oidc_client_secret.arn,
+          aws_secretsmanager_secret.postgres_url.arn,
+        ]
+      },
+      {
+        # Needed both to decrypt the secrets above and to pull the
+        # KMS-encrypted ECR image at task start.
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource = aws_kms_key.gateway.arn
+      },
+    ]
+  })
+}
+
+resource "aws_iam_role" "rds_enhanced_monitoring" {
+  name = "${var.name_prefix}-rds-monitoring-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-      Resource = [
-        aws_secretsmanager_secret.jwt.arn,
-        aws_secretsmanager_secret.oidc_client_secret.arn,
-        aws_secretsmanager_secret.postgres_url.arn,
-      ]
+      Effect    = "Allow"
+      Principal = { Service = "monitoring.rds.amazonaws.com" }
+      Action    = "sts:AssumeRole"
     }]
   })
 }
 
+resource "aws_iam_role_policy_attachment" "rds_enhanced_monitoring" {
+  role       = aws_iam_role.rds_enhanced_monitoring.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
+}
+
 # ---------------------------------------------------------------------
 # Secrets Manager - three secrets the gateway resolves at boot via
-# ${VAR} expansion in gateway.yaml. None of their values ever appear in
-# Terraform state in plaintext at rest (state encryption aside) beyond
-# what aws_secretsmanager_secret_version normally requires.
+# ${VAR} expansion in gateway.yaml.
 # ---------------------------------------------------------------------
 resource "random_password" "db_master" {
   length  = 32
@@ -214,8 +312,14 @@ resource "random_password" "db_master" {
 }
 
 resource "aws_secretsmanager_secret" "db_master_password" {
+  # checkov:skip=CKV2_AWS_57: Automatic rotation isn't wired up in this
+  # reference deployment - rotating this secret would need the
+  # AWS-provided RDS single-user rotation Lambda deployed alongside a
+  # VPC-reachable network path to the database. See this module's
+  # README for how to add it.
   name        = "${var.name_prefix}-db-master-password"
   description = "Auto-generated master password for the gateway's RDS instance."
+  kms_key_id  = aws_kms_key.gateway.id
 }
 
 resource "aws_secretsmanager_secret_version" "db_master_password" {
@@ -229,8 +333,13 @@ resource "random_password" "jwt_secret" {
 }
 
 resource "aws_secretsmanager_secret" "jwt" {
+  # checkov:skip=CKV2_AWS_57: This secret has no third-party rotation
+  # story - it's an opaque HMAC key, not a credential a managed rotation
+  # Lambda understands. Rotate manually by generating a new value and
+  # forcing a new ECS deployment; see this module's README.
   name        = "${var.name_prefix}-jwt-secret"
   description = "Signing key for gateway session JWTs (session.jwt_secret in gateway.yaml)."
+  kms_key_id  = aws_kms_key.gateway.id
 }
 
 resource "aws_secretsmanager_secret_version" "jwt" {
@@ -239,8 +348,13 @@ resource "aws_secretsmanager_secret_version" "jwt" {
 }
 
 resource "aws_secretsmanager_secret" "oidc_client_secret" {
+  # checkov:skip=CKV2_AWS_57: This value is issued by your IdP, not AWS -
+  # automatic rotation would require coordinating a secret change with
+  # the identity provider's own admin console/API, which is outside what
+  # a Secrets Manager rotation Lambda can do unattended.
   name        = "${var.name_prefix}-oidc-client-secret"
   description = "OAuth client secret from the IdP's gateway app registration (oidc.client_secret in gateway.yaml)."
+  kms_key_id  = aws_kms_key.gateway.id
 }
 
 resource "aws_secretsmanager_secret_version" "oidc_client_secret" {
@@ -249,8 +363,13 @@ resource "aws_secretsmanager_secret_version" "oidc_client_secret" {
 }
 
 resource "aws_secretsmanager_secret" "postgres_url" {
+  # checkov:skip=CKV2_AWS_57: A derived composite string (embeds
+  # db_master_password), not a standalone rotatable credential - it
+  # should be regenerated whenever the master password rotates, which
+  # this reference deployment doesn't automate. See this module's README.
   name        = "${var.name_prefix}-postgres-url"
   description = "Full connection string for the gateway's store (store.postgres_url in gateway.yaml)."
+  kms_key_id  = aws_kms_key.gateway.id
 }
 
 resource "aws_secretsmanager_secret_version" "postgres_url" {
@@ -280,7 +399,7 @@ resource "aws_db_parameter_group" "gateway" {
 resource "aws_db_instance" "gateway" {
   identifier        = "${var.name_prefix}-db"
   engine            = "postgres"
-  engine_version    = "16"
+  engine_version    = "16.13"
   instance_class    = var.db_instance_class
   allocated_storage = var.db_allocated_storage_gb
   db_name           = "claude_gateway"
@@ -294,9 +413,24 @@ resource "aws_db_instance" "gateway" {
   storage_encrypted         = true
   publicly_accessible       = false
   backup_retention_period   = 7
+  copy_tags_to_snapshot     = true
   deletion_protection       = var.enable_deletion_protection
   skip_final_snapshot       = !var.enable_deletion_protection
   final_snapshot_identifier = var.enable_deletion_protection ? "${var.name_prefix}-db-final" : null
+
+  auto_minor_version_upgrade = true
+  # Multi-AZ roughly doubles RDS cost - defaults false to match this
+  # reference deployment's db.t4g.micro sizing. Set true for production.
+  multi_az                            = var.enable_multi_az
+  iam_database_authentication_enabled = true
+  # The gateway itself connects with the password in store.postgres_url,
+  # not IAM tokens - this only makes IAM auth available as an
+  # additional option, it doesn't change current behavior.
+  performance_insights_enabled          = true
+  performance_insights_retention_period = 7
+  enabled_cloudwatch_logs_exports       = ["postgresql", "upgrade"]
+  monitoring_interval                   = 60
+  monitoring_role_arn                   = aws_iam_role.rds_enhanced_monitoring.arn
 }
 
 # ---------------------------------------------------------------------
@@ -310,6 +444,94 @@ resource "aws_ecr_repository" "gateway" {
   image_scanning_configuration {
     scan_on_push = true
   }
+
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.gateway.arn
+  }
+}
+
+# ---------------------------------------------------------------------
+# S3 bucket for ALB access logs
+# ---------------------------------------------------------------------
+resource "aws_s3_bucket" "alb_logs" {
+  # checkov:skip=CKV_AWS_18: This IS an access-log destination bucket -
+  # giving it its own access logs would be recursive.
+  # checkov:skip=CKV_AWS_144: Cross-region replication omitted for this
+  # starter template - add if your compliance regime requires geographic
+  # redundancy.
+  # checkov:skip=CKV_AWS_145: ALB access log delivery only supports
+  # SSE-S3 for the destination bucket, not SSE-KMS - a documented AWS
+  # limitation, not an oversight.
+  bucket = "${var.name_prefix}-alb-logs-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "alb_logs" {
+  bucket                  = aws_s3_bucket.alb_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+
+  rule {
+    id     = "ExpireAccessLogs"
+    status = "Enabled"
+
+    expiration {
+      days = 365
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowElbAccountAccessLogDelivery"
+        Effect    = "Allow"
+        Principal = { AWS = data.aws_elb_service_account.main.arn }
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.alb_logs.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+      },
+      {
+        Sid       = "AllowElbLogDeliveryServicePrincipal"
+        Effect    = "Allow"
+        Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.alb_logs.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+        Condition = {
+          StringEquals = { "s3:x-amz-acl" = "bucket-owner-full-control" }
+        }
+      },
+    ]
+  })
 }
 
 # ---------------------------------------------------------------------
@@ -317,13 +539,19 @@ resource "aws_ecr_repository" "gateway" {
 # ---------------------------------------------------------------------
 resource "aws_ecs_cluster" "gateway" {
   name = var.name_prefix
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "gateway" {
   # The gateway's stderr carries both its audit events and its
   # operational logs - align this retention with your audit policy.
   name              = "/ecs/${var.name_prefix}"
-  retention_in_days = 90
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.gateway.arn
 }
 
 resource "aws_ecs_task_definition" "gateway" {
@@ -340,11 +568,21 @@ resource "aws_ecs_task_definition" "gateway" {
     operating_system_family = "LINUX"
   }
 
+  volume {
+    name = "tmp"
+  }
+
   container_definitions = jsonencode([{
-    name  = "gateway"
-    image = "${aws_ecr_repository.gateway.repository_url}:${var.container_image_tag}"
+    name                   = "gateway"
+    image                  = "${aws_ecr_repository.gateway.repository_url}:${var.container_image_tag}"
+    readonlyRootFilesystem = true
     portMappings = [{
       containerPort = 8080
+    }]
+    mountPoints = [{
+      sourceVolume  = "tmp"
+      containerPath = "/tmp"
+      readOnly      = false
     }]
     secrets = [
       { name = "GATEWAY_JWT_SECRET", valueFrom = aws_secretsmanager_secret.jwt.arn },
@@ -377,6 +615,16 @@ resource "aws_lb" "gateway" {
   # A stream that goes quiet during long prompt processing or extended
   # thinking with no streamed output is cut mid-response at the ALB's
   # 60-second default.
+
+  enable_deletion_protection = var.enable_deletion_protection
+  drop_invalid_header_fields = true
+
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.id
+    enabled = true
+  }
+
+  depends_on = [aws_s3_bucket_policy.alb_logs]
 }
 
 resource "aws_lb_target_group" "gateway" {

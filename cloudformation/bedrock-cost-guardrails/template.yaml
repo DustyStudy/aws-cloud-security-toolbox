@@ -87,7 +87,7 @@ Resources:
     Properties:
       MonitorName: !Sub "${AWS::StackName}-bedrock-spend"
       MonitorType: CUSTOM
-      MonitorSpecification: !Sub '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Bedrock"],"MatchOptions":["EQUALS"]}}'
+      MonitorSpecification: '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Bedrock"],"MatchOptions":["EQUALS"]}}'
 
   BedrockAnomalySubscription:
     Type: AWS::CE::AnomalySubscription

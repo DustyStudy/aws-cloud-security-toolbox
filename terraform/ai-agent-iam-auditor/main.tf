@@ -102,7 +102,8 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
       },
       {
-        # ListRoles has no resource-level support in IAM - must be "*".
+        # checkov:skip=CKV_AWS_355: ListRoles has no resource-level
+        # support in IAM - must be "*".
         Effect   = "Allow"
         Action   = ["iam:ListRoles"]
         Resource = "*"
@@ -127,9 +128,9 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "arn:${data.aws_partition.current.partition}:iam::aws:policy/*"
       },
       {
-        # Discovers Bedrock Agent action groups so their Lambda execution
-        # roles can be audited too - these APIs don't support
-        # resource-level scoping to a specific agent.
+        # checkov:skip=CKV_AWS_355: Discovers Bedrock Agent action groups
+        # so their Lambda execution roles can be audited too - these APIs
+        # don't support resource-level scoping to a specific agent.
         Effect = "Allow"
         Action = [
           "bedrock:ListAgents",

@@ -44,6 +44,17 @@ everything else, including the ECS service.
 - **An optional `bedrock-runtime` interface VPC endpoint** so inference
   traffic never leaves the AWS network (on by default —
   `create_bedrock_vpc_endpoint = false` to skip)
+- **KMS encryption throughout** — a customer-managed key for Secrets
+  Manager, the ECR repository, and the ECS log group; RDS storage
+  encryption; access logs delivered to a dedicated, encrypted S3 bucket
+- **RDS hardening** — Performance Insights, Enhanced Monitoring,
+  automatic minor-version upgrades, IAM database authentication enabled
+  (available alongside password auth, not replacing it), PostgreSQL log
+  export to CloudWatch, and an optional Multi-AZ toggle
+- **ECS/ALB hardening** — Container Insights, a read-only root
+  filesystem on the gateway container (with a writable `/tmp` via an
+  ephemeral volume), ALB deletion protection, and invalid-header
+  dropping
 
 ## Prerequisites
 
@@ -113,7 +124,8 @@ your MDM's managed settings file — see
 | `desired_count` | Number of gateway tasks | `1` |
 | `db_instance_class` | RDS instance class | `db.t4g.micro` |
 | `db_allocated_storage_gb` | RDS storage in GB | `20` |
-| `enable_deletion_protection` | RDS deletion protection + final snapshot on destroy | `true` |
+| `enable_deletion_protection` | RDS + ALB deletion protection + final RDS snapshot on destroy | `true` |
+| `enable_multi_az` | Enable RDS Multi-AZ - roughly doubles RDS cost | `false` |
 | `create_bedrock_vpc_endpoint` | Create the `bedrock-runtime` interface endpoint | `true` |
 
 ## Outputs
@@ -126,6 +138,8 @@ your MDM's managed settings file — see
 | `task_definition_arn` | ARN of the registered task definition |
 | `jwt_secret_arn` / `oidc_client_secret_arn` / `postgres_url_secret_arn` | Secrets Manager ARNs |
 | `database_endpoint` | RDS endpoint address |
+| `kms_key_arn` | KMS key encrypting secrets, the ECR repository, and the log group |
+| `alb_logs_bucket_name` | S3 bucket holding ALB access logs |
 
 ## Notes
 
@@ -136,6 +150,16 @@ your MDM's managed settings file — see
 - **Rotating the JWT secret or OIDC client secret** requires a task
   restart to pick up the new value — force a new deployment after
   rotating (`aws ecs update-service --force-new-deployment`).
+- **Automatic secret rotation isn't wired up** for any of the four
+  secrets in this reference deployment. The DB master password is the
+  one with a real, implementable path (AWS's RDS single-user rotation
+  Lambda, deployed alongside network access to the database); the JWT
+  secret can only be rotated by generating a new value and forcing a new
+  ECS deployment; the OIDC client secret requires coordinating with your
+  IdP's own admin console, which a Secrets Manager rotation Lambda can't
+  do unattended; the Postgres URL secret is a derived string that would
+  need regenerating whenever the master password rotates. Each secret's
+  `checkov:skip` comment in `main.tf` repeats this.
 - **A `gateway.yaml` edit means a rebuild under a new image tag.** The
   config is baked into the image, and the ECR repository's `IMMUTABLE`
   tag setting means an existing tag can't be silently re-pointed at new
