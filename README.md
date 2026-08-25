@@ -35,9 +35,12 @@ aws-cloud-security-toolbox/
 │   ├── bedrock-logging-enforcement/  # scheduled check/restore of Bedrock invocation logging
 │   ├── ai-agent-iam-auditor/    # detective scan for over-permissioned Bedrock/SageMaker agent roles
 │   ├── bedrock-cost-guardrails/ # Budget + Cost Anomaly Detection scoped to Bedrock spend
-│   └── sagemaker-notebook-exposure/
-│       ├── event-driven/       # EventBridge + CloudTrail, near real-time
-│       └── config-rule/        # AWS Config + SSM Automation, catches drift
+│   ├── sagemaker-notebook-exposure/
+│   │   ├── event-driven/       # EventBridge + CloudTrail, near real-time
+│   │   └── config-rule/        # AWS Config + SSM Automation, catches drift
+│   └── claude-apps-gateway/     # reference deployment of Anthropic's self-hosted gateway
+│       ├── ecr/                 # phase 1: ECR repository
+│       └── infrastructure/      # phase 2: RDS, ALB, ECS service, IAM, Secrets Manager
 ├── terraform/
 │   ├── auto-remediate-open-ssh-rdp/
 │   │   ├── event-driven/
@@ -54,9 +57,10 @@ aws-cloud-security-toolbox/
 │   ├── bedrock-logging-enforcement/
 │   ├── ai-agent-iam-auditor/
 │   ├── bedrock-cost-guardrails/
-│   └── sagemaker-notebook-exposure/
-│       ├── event-driven/
-│       └── config-rule/
+│   ├── sagemaker-notebook-exposure/
+│   │   ├── event-driven/
+│   │   └── config-rule/
+│   └── claude-apps-gateway/     # same reference deployment, single module (2-phase apply)
 └── policies/
     ├── scp-guardrails/          # standalone SCP JSON, usable without CFN/TF
     └── ai-ml-guardrails/        # standalone AI/ML SCP JSON, usable without CFN/TF
@@ -192,6 +196,26 @@ settings while a notebook is stopped:
   catches pre-existing/drifted notebooks. Covers direct internet access
   only — there's no equivalent Config managed rule for root access yet,
   so `event-driven/` remains the only coverage for that.
+
+### `claude-apps-gateway`
+
+A reference deployment of the
+[Claude apps gateway for AWS](https://aws.amazon.com/blogs/machine-learning/introducing-claude-apps-gateway-for-aws/) —
+Anthropic's self-hosted control plane that centralizes identity (via your
+OIDC IdP), policy, telemetry, and spend caps for Claude Code and Claude
+Desktop across an organization, routing inference to Amazon Bedrock so no
+per-developer cloud credentials or long-lived secrets ever land on a
+laptop. Mirrors
+[Anthropic's own AWS deployment guide](https://code.claude.com/docs/en/claude-apps-gateway-on-aws)
+closely: ECS Fargate, RDS for PostgreSQL (encrypted, TLS-only), Secrets
+Manager, a least-privilege IAM task role scoped to exactly the Bedrock
+Claude model ARNs, and an internal ALB. Deliberately split into an ECR
+phase and an infrastructure phase — a single stack/apply can't create an
+empty image repository, wait for a human to push an image, and then
+stand up an ECS service that needs that image to exist. A working
+example for customer-managed infrastructure, not a supported production
+deployment — same caveat Anthropic's own guide gives about its `aws` CLI
+walkthrough.
 
 ## CI
 
