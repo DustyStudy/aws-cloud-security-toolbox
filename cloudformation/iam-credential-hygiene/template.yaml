@@ -89,13 +89,13 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "${AWS::StackName}-hygiene-dlq"
-      KmsMasterKeyId: alias/aws/sqs
+      KmsMasterKeyId: !Ref LogEncryptionKey
       MessageRetentionPeriod: 1209600 # 14 days
 
   LogEncryptionKey:
     Type: AWS::KMS::Key
     Properties:
-      Description: !Sub "Encrypts the ${AWS::StackName} IAM hygiene Lambda's log group and environment variables."
+      Description: !Sub "Encrypts the ${AWS::StackName} IAM hygiene Lambda's log group, DLQ, and environment variables."
       EnableKeyRotation: true
       KeyPolicy:
         Version: "2012-10-17"
@@ -120,6 +120,17 @@ Resources:
             Condition:
               ArnLike:
                 kms:EncryptionContext:aws:logs:arn: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-deactivate-stale-iam-keys"
+          - Sid: AllowSQSUseOfKey
+            Effect: Allow
+            Principal:
+              Service: sqs.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref "AWS::AccountId"
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -146,12 +157,14 @@ Resources:
               - Effect: Allow
                 Action:
                   - iam:ListUsers
+                Resource: "*"
+                # ListUsers has no resource-level support in IAM - must be "*".
+              - Effect: Allow
+                Action:
                   - iam:ListAccessKeys
                   - iam:GetAccessKeyLastUsed
                   - iam:ListUserTags
-                Resource: "*"
-                # Read-only, account-wide by nature - IAM doesn't support
-                # resource-level scoping for listing across all users.
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/*"
               - Effect: Allow
                 Action:
                   - iam:UpdateAccessKey

@@ -22,12 +22,63 @@ Parameters:
       key (needed if they'll query their own logs directly, e.g. via
       Athena). Leave blank to restrict decryption to this account only.
 
+  LogRetentionDays:
+    Type: Number
+    Default: 2555
+    Description: Days before trail logs expire from the S3 bucket (~7 years by default).
+
 Conditions:
   HasOrganizationId: !Not [!Equals [!Ref OrganizationId, ""]]
 
 Resources:
+  AccessLogsBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_144
+            comment: >-
+              Access-log bucket for TrailBucket below; cross-region
+              replication of the access logs themselves is unnecessary
+              overhead for a starter template.
+          - id: CKV2_AWS_62
+            comment: >-
+              Pure write-once access-log target - nothing downstream
+              consumes events from it, so notifications add no value here.
+    Properties:
+      BucketName: !Sub "${TrailName}-access-logs-${AWS::AccountId}-${AWS::Region}"
+      AccessControl: LogDeliveryWrite
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAccessLogs
+            Status: Enabled
+            ExpirationInDays: 365
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
   TrailBucket:
     Type: AWS::S3::Bucket
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_144
+            comment: >-
+              Cross-region replication is deliberately not included - it
+              doubles storage cost and adds a second region for a starter
+              template. Add a ReplicationConfiguration if your compliance
+              regime requires geographic redundancy for trail logs.
     Properties:
       BucketName: !Sub "${TrailName}-logs-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
@@ -42,6 +93,12 @@ Resources:
         RestrictPublicBuckets: true
       VersioningConfiguration:
         Status: Enabled
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: trail-bucket-access-logs/
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
       LifecycleConfiguration:
         Rules:
           - Id: TransitionAndExpire
@@ -51,7 +108,9 @@ Resources:
                 StorageClass: STANDARD_IA
               - TransitionInDays: 365
                 StorageClass: GLACIER
-            ExpirationInDays: 2555 # ~7 years - adjust to your retention requirement
+            ExpirationInDays: !Ref LogRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
 
   TrailBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -114,24 +173,77 @@ Resources:
               Service: cloudtrail.amazonaws.com
             Action: kms:DescribeKey
             Resource: "*"
-          - !If
-            - HasOrganizationId
-            - Sid: AllowOrgAccountsToDecrypt
-              Effect: Allow
-              Principal:
-                AWS: "*"
-              Action:
-                - kms:Decrypt
-                - kms:ReEncryptFrom
-              Resource: "*"
-              Condition:
-                StringEquals:
-                  aws:PrincipalOrgID: !Ref OrganizationId
-            - !Ref "AWS::NoValue"
+          - Sid: AllowOrgAccountsToDecrypt
+            # Inert unless OrganizationId is set - see EffectiveOrganizationId below.
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !If
+                  - HasOrganizationId
+                  - !Ref OrganizationId
+                  - "o-00000000disabled"
+
+  CloudTrailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/cloudtrail/${TrailName}"
+      RetentionInDays: 365
+
+  CloudTrailToCloudWatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${TrailName}-cloudwatch-logs-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudTrailToCloudWatchLogsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${CloudTrailLogGroup.Arn}:*"
+
+  TrailTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${TrailName}-notifications"
+      KmsMasterKeyId: alias/aws/sns
+
+  TrailTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref TrailTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudTrailPublish
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref TrailTopic
 
   OrganizationTrail:
     Type: AWS::CloudTrail::Trail
-    DependsOn: TrailBucketPolicy
+    DependsOn:
+      - TrailBucketPolicy
+      - CloudTrailToCloudWatchRole
+      - TrailTopicPolicy
     Properties:
       TrailName: !Ref TrailName
       S3BucketName: !Ref TrailBucket
@@ -141,6 +253,9 @@ Resources:
       EnableLogFileValidation: true
       KMSKeyId: !Ref TrailEncryptionKey
       IsLogging: true
+      SnsTopicName: !GetAtt TrailTopic.TopicName
+      CloudWatchLogsLogGroupArn: !Sub "${CloudTrailLogGroup.Arn}:*"
+      CloudWatchLogsRoleArn: !GetAtt CloudTrailToCloudWatchRole.Arn
 
 Outputs:
   TrailArn:
@@ -150,3 +265,11 @@ Outputs:
   TrailBucketName:
     Description: Name of the S3 bucket holding trail logs for every account in the Organization
     Value: !Ref TrailBucket
+
+  SNSTopicArn:
+    Description: ARN of the SNS topic CloudTrail publishes new-log-file notifications to
+    Value: !Ref TrailTopic
+
+  CloudWatchLogGroupName:
+    Description: Name of the CloudWatch Logs group receiving trail events
+    Value: !Ref CloudTrailLogGroup

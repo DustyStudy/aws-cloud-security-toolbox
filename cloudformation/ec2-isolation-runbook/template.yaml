@@ -29,6 +29,14 @@ Conditions:
 Resources:
   IsolationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV2_AWS_5
+            comment: >-
+              This SG is deliberately unattached until an incident - it's a
+              spare, fully-locked-down group the runbook swaps onto a
+              compromised instance at isolation time.
     Properties:
       GroupDescription: Fully isolated SG for incident-response quarantine - no inbound, no outbound.
       VpcId: !Ref VpcId

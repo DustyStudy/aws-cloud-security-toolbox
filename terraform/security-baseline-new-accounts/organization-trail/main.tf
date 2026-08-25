@@ -6,6 +6,15 @@
 
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+locals {
+  # A syntactically-valid but non-matching org ID, so the decrypt
+  # statement below is always present (helps static analysis tools that
+  # struggle with conditionally-omitted policy statements) while being
+  # functionally inert when organization_id isn't set.
+  effective_org_id = var.organization_id != "" ? var.organization_id : "o-00000000disabled"
+}
 
 resource "aws_kms_key" "trail" {
   description         = "Encrypts the Organization CloudTrail trail's log files."
@@ -13,49 +22,104 @@ resource "aws_kms_key" "trail" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = concat(
-      [
-        {
-          Sid       = "EnableIAMUserPermissions"
-          Effect    = "Allow"
-          Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
-          Action    = "kms:*"
-          Resource  = "*"
-        },
-        {
-          Sid       = "AllowCloudTrailToEncryptLogs"
-          Effect    = "Allow"
-          Principal = { Service = "cloudtrail.amazonaws.com" }
-          Action    = "kms:GenerateDataKey*"
-          Resource  = "*"
-          Condition = {
-            StringLike = {
-              "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:${data.aws_partition.current.partition}:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"
-            }
-          }
-        },
-        {
-          Sid       = "AllowCloudTrailToDescribeKey"
-          Effect    = "Allow"
-          Principal = { Service = "cloudtrail.amazonaws.com" }
-          Action    = "kms:DescribeKey"
-          Resource  = "*"
-        },
-      ],
-      var.organization_id != "" ? [
-        {
-          Sid       = "AllowOrgAccountsToDecrypt"
-          Effect    = "Allow"
-          Principal = { AWS = "*" }
-          Action    = ["kms:Decrypt", "kms:ReEncryptFrom"]
-          Resource  = "*"
-          Condition = {
-            StringEquals = { "aws:PrincipalOrgID" = var.organization_id }
+    Statement = [
+      {
+        Sid       = "EnableIAMUserPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowCloudTrailToEncryptLogs"
+        Effect    = "Allow"
+        Principal = { Service = "cloudtrail.amazonaws.com" }
+        Action    = "kms:GenerateDataKey*"
+        Resource  = "*"
+        Condition = {
+          StringLike = {
+            "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:${data.aws_partition.current.partition}:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"
           }
         }
-      ] : []
-    )
+      },
+      {
+        Sid       = "AllowCloudTrailToDescribeKey"
+        Effect    = "Allow"
+        Principal = { Service = "cloudtrail.amazonaws.com" }
+        Action    = "kms:DescribeKey"
+        Resource  = "*"
+      },
+      {
+        # Inert unless organization_id is set - see local.effective_org_id.
+        Sid       = "AllowOrgAccountsToDecrypt"
+        Effect    = "Allow"
+        Principal = { AWS = "*" }
+        Action    = ["kms:Decrypt", "kms:ReEncryptFrom"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = { "aws:PrincipalOrgID" = local.effective_org_id }
+        }
+      },
+    ]
   })
+}
+
+resource "aws_s3_bucket" "access_logs" {
+  # checkov:skip=CKV_AWS_144: Access-log bucket for the trail bucket below;
+  # cross-region replication of the access logs themselves is unnecessary
+  # overhead for a starter template. Enable if your compliance regime
+  # requires it.
+  # checkov:skip=CKV2_AWS_62: Pure write-once access-log target - nothing
+  # downstream consumes events from it, so notifications add no value here.
+  bucket = "${var.trail_name}-access-logs-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "access_logs" {
+  bucket                  = aws_s3_bucket.access_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  rule {
+    id     = "ExpireAccessLogs"
+    status = "Enabled"
+
+    expiration {
+      days = 365
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+  acl    = "log-delivery-write"
+
+  depends_on = [aws_s3_bucket_ownership_controls.access_logs]
 }
 
 resource "aws_s3_bucket" "trail" {
@@ -87,6 +151,12 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "trail" {
   }
 }
 
+resource "aws_s3_bucket_logging" "trail" {
+  bucket        = aws_s3_bucket.trail.id
+  target_bucket = aws_s3_bucket.access_logs.id
+  target_prefix = "trail-bucket-access-logs/"
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "trail" {
   bucket = aws_s3_bucket.trail.id
 
@@ -107,10 +177,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "trail" {
     expiration {
       days = var.log_retention_days # ~7 years by default - adjust to your requirement
     }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
 
 resource "aws_s3_bucket_policy" "trail" {
+  # checkov:skip=CKV_AWS_144: Cross-region replication is deliberately not
+  # included - it doubles storage cost and adds a second region/IAM role
+  # for a starter template. Add an aws_s3_bucket_replication_configuration
+  # if your compliance regime requires geographic redundancy for trail logs.
   bucket = aws_s3_bucket.trail.id
 
   policy = jsonencode({
@@ -147,8 +225,65 @@ resource "aws_s3_bucket_policy" "trail" {
   })
 }
 
+resource "aws_s3_bucket_notification" "trail" {
+  bucket      = aws_s3_bucket.trail.id
+  eventbridge = true
+}
+
+resource "aws_sns_topic" "trail" {
+  name              = "${var.trail_name}-notifications"
+  kms_master_key_id = "alias/aws/sns"
+}
+
+resource "aws_sns_topic_policy" "trail" {
+  arn = aws_sns_topic.trail.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowCloudTrailPublish"
+      Effect    = "Allow"
+      Principal = { Service = "cloudtrail.amazonaws.com" }
+      Action    = "sns:Publish"
+      Resource  = aws_sns_topic.trail.arn
+    }]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "trail" {
+  name              = "/aws/cloudtrail/${var.trail_name}"
+  retention_in_days = 365
+}
+
+resource "aws_iam_role" "cloudtrail_to_cloudwatch" {
+  name = "${var.trail_name}-cloudwatch-logs-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "cloudtrail.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "cloudtrail_to_cloudwatch" {
+  name = "${var.trail_name}-cloudwatch-logs-policy"
+  role = aws_iam_role.cloudtrail_to_cloudwatch.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+      Resource = "${aws_cloudwatch_log_group.trail.arn}:*"
+    }]
+  })
+}
+
 resource "aws_cloudtrail" "organization" {
-  depends_on = [aws_s3_bucket_policy.trail]
+  depends_on = [aws_s3_bucket_policy.trail, aws_iam_role_policy.cloudtrail_to_cloudwatch]
 
   name                          = var.trail_name
   s3_bucket_name                = aws_s3_bucket.trail.id
@@ -158,4 +293,7 @@ resource "aws_cloudtrail" "organization" {
   enable_log_file_validation    = true
   kms_key_id                    = aws_kms_key.trail.arn
   enable_logging                = true
+  sns_topic_name                = aws_sns_topic.trail.name
+  cloud_watch_logs_group_arn    = "${aws_cloudwatch_log_group.trail.arn}:*"
+  cloud_watch_logs_role_arn     = aws_iam_role.cloudtrail_to_cloudwatch.arn
 }

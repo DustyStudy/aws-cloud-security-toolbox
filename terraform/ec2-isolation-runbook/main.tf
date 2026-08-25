@@ -3,6 +3,9 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 resource "aws_security_group" "isolation" {
+  # checkov:skip=CKV2_AWS_5: This SG is deliberately unattached until an
+  # incident - it's a spare, fully-locked-down group the runbook swaps
+  # onto a compromised instance at isolation time via ModifyInstanceAttribute.
   name_prefix = "${var.name_prefix}-isolation-"
   description = "Fully isolated SG for incident-response quarantine - no inbound, no outbound."
   vpc_id      = var.vpc_id

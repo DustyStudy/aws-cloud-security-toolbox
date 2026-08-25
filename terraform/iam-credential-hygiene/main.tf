@@ -22,12 +22,12 @@ resource "aws_sns_topic_subscription" "email" {
 
 resource "aws_sqs_queue" "dlq" {
   name                      = "${var.name_prefix}-hygiene-dlq"
-  kms_master_key_id         = "alias/aws/sqs"
+  kms_master_key_id         = aws_kms_key.log_encryption.arn
   message_retention_seconds = 1209600
 }
 
 resource "aws_kms_key" "log_encryption" {
-  description         = "Encrypts the ${var.name_prefix} IAM hygiene Lambda's log group and environment variables."
+  description         = "Encrypts the ${var.name_prefix} IAM hygiene Lambda's log group, DLQ, and environment variables."
   enable_key_rotation = true
 
   policy = jsonencode({
@@ -56,6 +56,16 @@ resource "aws_kms_key" "log_encryption" {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-deactivate-stale-iam-keys"
           }
+        }
+      },
+      {
+        Sid       = "AllowSQSUseOfKey"
+        Effect    = "Allow"
+        Principal = { Service = "sqs.amazonaws.com" }
+        Action    = ["kms:GenerateDataKey*", "kms:Decrypt"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = { "kms:CallerAccount" = data.aws_caller_identity.current.account_id }
         }
       },
     ]
@@ -97,16 +107,19 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
       },
       {
-        # Read-only, account-wide by nature - IAM doesn't support
-        # resource-level scoping for listing across all users.
+        # ListUsers has no resource-level support in IAM - must be "*".
+        Effect   = "Allow"
+        Action   = ["iam:ListUsers"]
+        Resource = "*"
+      },
+      {
         Effect = "Allow"
         Action = [
-          "iam:ListUsers",
           "iam:ListAccessKeys",
           "iam:GetAccessKeyLastUsed",
           "iam:ListUserTags",
         ]
-        Resource = "*"
+        Resource = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:user/*"
       },
       {
         Effect   = "Allow"
