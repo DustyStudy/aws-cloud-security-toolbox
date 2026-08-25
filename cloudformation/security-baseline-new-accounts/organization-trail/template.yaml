@@ -47,10 +47,6 @@ Resources:
               consumes events from it, so notifications add no value here.
     Properties:
       BucketName: !Sub "${TrailName}-access-logs-${AWS::AccountId}-${AWS::Region}"
-      AccessControl: LogDeliveryWrite
-      OwnershipControls:
-        Rules:
-          - ObjectOwnership: BucketOwnerPreferred
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -67,6 +63,25 @@ Resources:
             ExpirationInDays: 365
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
+
+  AccessLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AccessLogsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: S3ServerAccessLogsPolicy
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${AccessLogsBucket.Arn}/*"
+            Condition:
+              ArnLike:
+                aws:SourceArn: !GetAtt TrailBucket.Arn
+              StringEquals:
+                aws:SourceAccount: !Ref "AWS::AccountId"
 
   TrailBucket:
     Type: AWS::S3::Bucket
@@ -242,7 +257,6 @@ Resources:
     Type: AWS::CloudTrail::Trail
     DependsOn:
       - TrailBucketPolicy
-      - CloudTrailToCloudWatchRole
       - TrailTopicPolicy
     Properties:
       TrailName: !Ref TrailName
