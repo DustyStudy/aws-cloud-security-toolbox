@@ -6,6 +6,7 @@
 
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 locals {
   # A syntactically-valid but non-matching org ID, so the decrypt
@@ -16,7 +17,7 @@ locals {
 }
 
 resource "aws_kms_key" "trail" {
-  description         = "Encrypts the Organization CloudTrail trail's log files."
+  description         = "Encrypts the Organization CloudTrail trail's log files and CloudWatch Logs group."
   enable_key_rotation = true
 
   policy = jsonencode({
@@ -49,7 +50,29 @@ resource "aws_kms_key" "trail" {
         Resource  = "*"
       },
       {
+        Sid       = "AllowCloudWatchLogsUseOfKey"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*",
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/cloudtrail/${var.trail_name}"
+          }
+        }
+      },
+      {
         # Inert unless organization_id is set - see local.effective_org_id.
+        # A wildcard principal scoped by an aws:PrincipalOrgID condition is
+        # the standard AWS pattern for "any account in this org" grants -
+        # there's no way to name specific account ARNs for accounts that
+        # may not exist yet.
         Sid       = "AllowOrgAccountsToDecrypt"
         Effect    = "Allow"
         Principal = { AWS = "*" }
@@ -70,6 +93,11 @@ resource "aws_s3_bucket" "access_logs" {
   # requires it.
   # checkov:skip=CKV2_AWS_62: Pure write-once access-log target - nothing
   # downstream consumes events from it, so notifications add no value here.
+  # checkov:skip=CKV_AWS_18: This IS the access-log destination bucket -
+  # giving it its own access logs would be recursive.
+  # checkov:skip=CKV_AWS_145: S3 server access log delivery only supports
+  # SSE-S3 for the destination bucket, not SSE-KMS - this is a documented
+  # AWS limitation, not an oversight.
   bucket = "${var.trail_name}-access-logs-${data.aws_caller_identity.current.account_id}"
 }
 
@@ -79,6 +107,13 @@ resource "aws_s3_bucket_public_access_block" "access_logs" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "access_logs" {
@@ -110,18 +145,34 @@ resource "aws_s3_bucket_lifecycle_configuration" "access_logs" {
 resource "aws_s3_bucket_ownership_controls" "access_logs" {
   bucket = aws_s3_bucket.access_logs.id
   rule {
-    object_ownership = "BucketOwnerPreferred"
+    object_ownership = "BucketOwnerEnforced"
   }
 }
 
-resource "aws_s3_bucket_acl" "access_logs" {
+resource "aws_s3_bucket_policy" "access_logs" {
   bucket = aws_s3_bucket.access_logs.id
-  acl    = "log-delivery-write"
 
-  depends_on = [aws_s3_bucket_ownership_controls.access_logs]
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "S3ServerAccessLogsPolicy"
+      Effect    = "Allow"
+      Principal = { Service = "logging.s3.amazonaws.com" }
+      Action    = "s3:PutObject"
+      Resource  = "${aws_s3_bucket.access_logs.arn}/*"
+      Condition = {
+        ArnLike       = { "aws:SourceArn" = aws_s3_bucket.trail.arn }
+        StringEquals  = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+      }
+    }]
+  })
 }
 
 resource "aws_s3_bucket" "trail" {
+  # checkov:skip=CKV_AWS_144: Cross-region replication is deliberately not
+  # included - it doubles storage cost and adds a second region/IAM role
+  # for a starter template. Add an aws_s3_bucket_replication_configuration
+  # if your compliance regime requires geographic redundancy for trail logs.
   bucket = "${var.trail_name}-logs-${data.aws_caller_identity.current.account_id}"
 }
 
@@ -184,10 +235,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "trail" {
 }
 
 resource "aws_s3_bucket_policy" "trail" {
-  # checkov:skip=CKV_AWS_144: Cross-region replication is deliberately not
-  # included - it doubles storage cost and adds a second region/IAM role
-  # for a starter template. Add an aws_s3_bucket_replication_configuration
-  # if your compliance regime requires geographic redundancy for trail logs.
   bucket = aws_s3_bucket.trail.id
 
   policy = jsonencode({
@@ -252,6 +299,7 @@ resource "aws_sns_topic_policy" "trail" {
 resource "aws_cloudwatch_log_group" "trail" {
   name              = "/aws/cloudtrail/${var.trail_name}"
   retention_in_days = 365
+  kms_key_id        = aws_kms_key.trail.arn
 }
 
 resource "aws_iam_role" "cloudtrail_to_cloudwatch" {

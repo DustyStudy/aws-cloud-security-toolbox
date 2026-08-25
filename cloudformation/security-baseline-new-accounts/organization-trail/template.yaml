@@ -45,6 +45,15 @@ Resources:
             comment: >-
               Pure write-once access-log target - nothing downstream
               consumes events from it, so notifications add no value here.
+          - id: CKV_AWS_18
+            comment: >-
+              This IS the access-log destination bucket - giving it its
+              own access logs would be recursive.
+          - id: CKV_AWS_145
+            comment: >-
+              S3 server access log delivery only supports SSE-S3 for the
+              destination bucket, not SSE-KMS - this is a documented AWS
+              limitation, not an oversight.
     Properties:
       BucketName: !Sub "${TrailName}-access-logs-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
@@ -56,6 +65,8 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
       LifecycleConfiguration:
         Rules:
           - Id: ExpireAccessLogs
@@ -161,8 +172,19 @@ Resources:
 
   TrailEncryptionKey:
     Type: AWS::KMS::Key
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_33
+            comment: >-
+              The AllowOrgAccountsToDecrypt statement uses a wildcard
+              principal scoped by an aws:PrincipalOrgID condition - the
+              standard AWS pattern for "any account in this org" grants,
+              since specific account ARNs can't be enumerated for accounts
+              that may not exist yet. Inert (o-00000000disabled sentinel)
+              unless OrganizationId is actually set.
     Properties:
-      Description: Encrypts the Organization CloudTrail trail's log files.
+      Description: Encrypts the Organization CloudTrail trail's log files and CloudWatch Logs group.
       EnableKeyRotation: true
       KeyPolicy:
         Version: "2012-10-17"
@@ -188,6 +210,20 @@ Resources:
               Service: cloudtrail.amazonaws.com
             Action: kms:DescribeKey
             Resource: "*"
+          - Sid: AllowCloudWatchLogsUseOfKey
+            Effect: Allow
+            Principal:
+              Service: !Sub "logs.${AWS::Region}.amazonaws.com"
+            Action:
+              - kms:Encrypt*
+              - kms:Decrypt*
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:Describe*
+            Resource: "*"
+            Condition:
+              ArnLike:
+                kms:EncryptionContext:aws:logs:arn: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/cloudtrail/${TrailName}"
           - Sid: AllowOrgAccountsToDecrypt
             # Inert unless OrganizationId is set - see EffectiveOrganizationId below.
             Effect: Allow
@@ -209,6 +245,7 @@ Resources:
     Properties:
       LogGroupName: !Sub "/aws/cloudtrail/${TrailName}"
       RetentionInDays: 365
+      KmsKeyId: !GetAtt TrailEncryptionKey.Arn
 
   CloudTrailToCloudWatchRole:
     Type: AWS::IAM::Role
