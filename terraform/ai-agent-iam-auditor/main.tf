@@ -37,7 +37,7 @@ resource "aws_kms_key" "log_encryption" {
       {
         Sid       = "AllowCloudWatchLogsUseOfKey"
         Effect    = "Allow"
-        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Principal = { Service = "logs.${data.aws_region.current.region}.amazonaws.com" }
         Action = [
           "kms:Encrypt*",
           "kms:Decrypt*",
@@ -48,7 +48,7 @@ resource "aws_kms_key" "log_encryption" {
         Resource = "*"
         Condition = {
           ArnLike = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-audit-ai-agent-iam"
+            "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-audit-ai-agent-iam"
           }
         }
       },
@@ -99,7 +99,7 @@ resource "aws_iam_role_policy" "lambda_exec" {
           "logs:CreateLogStream",
           "logs:PutLogEvents",
         ]
-        Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
+        Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*"
       },
       {
         # checkov:skip=CKV_AWS_355: ListRoles has no resource-level
@@ -142,7 +142,7 @@ resource "aws_iam_role_policy" "lambda_exec" {
       {
         Effect   = "Allow"
         Action   = ["lambda:GetFunction"]
-        Resource = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:*"
+        Resource = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:*"
       },
       {
         Effect   = "Allow"

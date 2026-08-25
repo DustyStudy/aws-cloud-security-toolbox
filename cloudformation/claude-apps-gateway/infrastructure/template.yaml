@@ -116,7 +116,6 @@ Parameters:
 
 Conditions:
   ShouldCreateBedrockVpcEndpoint: !Equals [!Ref CreateBedrockVpcEndpoint, "true"]
-  ShouldEnableDeletionProtection: !Equals [!Ref EnableDeletionProtection, "true"]
 
 Resources:
   # ---------------------------------------------------------------------
@@ -196,7 +195,7 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           DestinationSecurityGroupId: !Ref DbSecurityGroup
-          Description: Postgres to the gateway's store
+          Description: Postgres to the gateway store
 
   GatewaySecurityGroupIngressFromAlb:
     Type: AWS::EC2::SecurityGroupIngress
@@ -476,7 +475,7 @@ Resources:
       DeletionProtection: !Ref EnableDeletionProtection
       MultiAZ: !Ref EnableMultiAz
       AutoMinorVersionUpgrade: true
-      IAMDatabaseAuthenticationEnabled: true
+      EnableIAMDatabaseAuthentication: true
       # The gateway itself connects with the password in
       # store.postgres_url, not IAM tokens - this only makes IAM auth
       # available as an additional option, it doesn't change current

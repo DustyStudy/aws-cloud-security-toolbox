@@ -40,7 +40,7 @@ resource "aws_kms_key" "gateway" {
       {
         Sid       = "AllowCloudWatchLogsUseOfKey"
         Effect    = "Allow"
-        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Principal = { Service = "logs.${data.aws_region.current.region}.amazonaws.com" }
         Action = [
           "kms:Encrypt*",
           "kms:Decrypt*",
@@ -51,7 +51,7 @@ resource "aws_kms_key" "gateway" {
         Resource = "*"
         Condition = {
           ArnLike = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.name_prefix}"
+            "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.name_prefix}"
           }
         }
       },
@@ -132,7 +132,7 @@ resource "aws_security_group_rule" "gateway_egress_https" {
 }
 
 resource "aws_security_group_rule" "gateway_to_db" {
-  description              = "Postgres to the gateway's store"
+  description              = "Postgres to the gateway store"
   type                     = "egress"
   from_port                = 5432
   to_port                  = 5432
@@ -192,7 +192,7 @@ resource "aws_vpc_endpoint" "bedrock_runtime" {
   count = var.create_bedrock_vpc_endpoint ? 1 : 0
 
   vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.bedrock-runtime"
+  service_name        = "com.amazonaws.${data.aws_region.current.region}.bedrock-runtime"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = var.private_subnet_ids
   security_group_ids  = [aws_security_group.bedrock_endpoint[0].id]
@@ -230,7 +230,7 @@ resource "aws_iam_role_policy" "bedrock_invoke" {
       Effect = "Allow"
       Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
       Resource = [
-        "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:inference-profile/us.anthropic.*",
+        "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:inference-profile/us.anthropic.*",
         "arn:${data.aws_partition.current.partition}:bedrock:*::foundation-model/anthropic.*",
       ]
     }]
@@ -593,7 +593,7 @@ resource "aws_ecs_task_definition" "gateway" {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.gateway.name
-        "awslogs-region"        = data.aws_region.current.name
+        "awslogs-region"        = data.aws_region.current.region
         "awslogs-stream-prefix" = "gateway"
       }
     }

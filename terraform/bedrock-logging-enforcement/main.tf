@@ -37,7 +37,7 @@ resource "aws_kms_key" "log_encryption" {
       {
         Sid       = "AllowCloudWatchLogsUseOfKey"
         Effect    = "Allow"
-        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Principal = { Service = "logs.${data.aws_region.current.region}.amazonaws.com" }
         Action = [
           "kms:Encrypt*",
           "kms:Decrypt*",
@@ -49,8 +49,8 @@ resource "aws_kms_key" "log_encryption" {
         Condition = {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = [
-              "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-enforce-bedrock-logging",
-              "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:${var.name_prefix}-bedrock-invocation-logs",
+              "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-enforce-bedrock-logging",
+              "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:${var.name_prefix}-bedrock-invocation-logs",
             ]
           }
         }
@@ -149,7 +149,7 @@ resource "aws_s3_bucket_policy" "bedrock_logs" {
       Resource  = "${aws_s3_bucket.bedrock_logs.arn}/*"
       Condition = {
         StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
-        ArnLike      = { "aws:SourceArn" = "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*" }
+        ArnLike      = { "aws:SourceArn" = "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*" }
       }
     }]
   })
@@ -218,7 +218,7 @@ resource "aws_iam_role_policy" "lambda_exec" {
           "logs:CreateLogStream",
           "logs:PutLogEvents",
         ]
-        Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
+        Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*"
       },
       {
         # Bedrock's account-level logging configuration APIs are not
