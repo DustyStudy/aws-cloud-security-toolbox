@@ -45,7 +45,7 @@ resource "aws_kms_key" "log_encryption" {
           "kms:GenerateDataKey*",
           "kms:Describe*",
         ]
-        Resource  = "*"
+        Resource = "*"
         Condition = {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-remediate-sagemaker-exposure"
@@ -141,18 +141,18 @@ resource "aws_iam_role_policy" "lambda_exec" {
 resource "aws_lambda_function" "remediate" {
   # checkov:skip=CKV_AWS_117: Control-plane only Lambda (SageMaker/SNS/SQS
   # APIs over public AWS endpoints) - no customer VPC resources touched.
-  function_name                   = "${var.name_prefix}-remediate-sagemaker-exposure"
-  description                     = "Detects and remediates SageMaker notebooks with direct internet or root access enabled."
-  role                            = aws_iam_role.lambda_exec.arn
-  handler                         = "remediate_sagemaker_notebook_exposure.lambda_handler"
-  runtime                         = "python3.12"
-  timeout                         = 60
-  memory_size                     = 128
-  reserved_concurrent_executions  = 5
-  filename                        = data.archive_file.lambda_zip.output_path
-  source_code_hash                = data.archive_file.lambda_zip.output_base64sha256
-  kms_key_arn                     = aws_kms_key.log_encryption.arn
-  code_signing_config_arn         = var.code_signing_config_arn
+  function_name                  = "${var.name_prefix}-remediate-sagemaker-exposure"
+  description                    = "Detects and remediates SageMaker notebooks with direct internet or root access enabled."
+  role                           = aws_iam_role.lambda_exec.arn
+  handler                        = "remediate_sagemaker_notebook_exposure.lambda_handler"
+  runtime                        = "python3.12"
+  timeout                        = 60
+  memory_size                    = 128
+  reserved_concurrent_executions = 5
+  filename                       = data.archive_file.lambda_zip.output_path
+  source_code_hash               = data.archive_file.lambda_zip.output_base64sha256
+  kms_key_arn                    = aws_kms_key.log_encryption.arn
+  code_signing_config_arn        = var.code_signing_config_arn
 
   tracing_config {
     mode = "Active"

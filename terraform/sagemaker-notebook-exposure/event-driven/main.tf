@@ -45,7 +45,7 @@ resource "aws_kms_key" "log_encryption" {
           "kms:GenerateDataKey*",
           "kms:Describe*",
         ]
-        Resource  = "*"
+        Resource = "*"
         Condition = {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-remediate-sagemaker-exposure"

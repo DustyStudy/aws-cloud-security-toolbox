@@ -45,7 +45,7 @@ resource "aws_kms_key" "log_encryption" {
           "kms:GenerateDataKey*",
           "kms:Describe*",
         ]
-        Resource  = "*"
+        Resource = "*"
         Condition = {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = [

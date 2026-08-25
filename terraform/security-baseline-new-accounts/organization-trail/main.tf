@@ -35,7 +35,7 @@ resource "aws_kms_key" "trail" {
         Effect    = "Allow"
         Principal = { Service = "cloudtrail.amazonaws.com" }
         Action    = "kms:GenerateDataKey*"
-        Resource  = "*"
+        Resource = "*"
         Condition = {
           StringLike = {
             "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:${data.aws_partition.current.partition}:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"
@@ -60,7 +60,7 @@ resource "aws_kms_key" "trail" {
           "kms:GenerateDataKey*",
           "kms:Describe*",
         ]
-        Resource  = "*"
+        Resource = "*"
         Condition = {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/cloudtrail/${var.trail_name}"
@@ -77,7 +77,7 @@ resource "aws_kms_key" "trail" {
         Effect    = "Allow"
         Principal = { AWS = "*" }
         Action    = ["kms:Decrypt", "kms:ReEncryptFrom"]
-        Resource  = "*"
+        Resource = "*"
         Condition = {
           StringEquals = { "aws:PrincipalOrgID" = local.effective_org_id }
         }
