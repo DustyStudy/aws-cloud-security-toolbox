@@ -82,7 +82,15 @@ resource "aws_s3_bucket" "bedrock_logs" {
   # checkov:skip=CKV_AWS_144: Cross-region replication omitted for this
   # starter template - add if your compliance regime requires geographic
   # redundancy.
+  # checkov:skip=CKV_AWS_145: Bedrock's S3 log-delivery mechanism does not
+  # support SSE-KMS destination buckets - SSE-S3 is required here. This is
+  # a documented AWS limitation, not an oversight.
   bucket = "${var.name_prefix}-bedrock-invocation-logs-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_notification" "bedrock_logs" {
+  bucket      = aws_s3_bucket.bedrock_logs.id
+  eventbridge = true
 }
 
 resource "aws_s3_bucket_public_access_block" "bedrock_logs" {

@@ -135,6 +135,11 @@ Resources:
             comment: Server access logging omitted for this starter template - add an access-log bucket like the one in organization-trail/ if required.
           - id: CKV_AWS_144
             comment: Cross-region replication omitted for this starter template - add if your compliance regime requires geographic redundancy.
+          - id: CKV_AWS_145
+            comment: >-
+              Bedrock's S3 log-delivery mechanism does not support SSE-KMS
+              destination buckets - SSE-S3 is required here. This is a
+              documented AWS limitation, not an oversight.
     Properties:
       BucketName: !Sub "${AWS::StackName}-bedrock-invocation-logs-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
@@ -151,6 +156,9 @@ Resources:
         RestrictPublicBuckets: true
       VersioningConfiguration:
         Status: Enabled
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
       LifecycleConfiguration:
         Rules:
           - Id: ExpireOldLogs
