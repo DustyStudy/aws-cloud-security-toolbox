@@ -38,9 +38,10 @@ aws-cloud-security-toolbox/
 │   ├── sagemaker-notebook-exposure/
 │   │   ├── event-driven/       # EventBridge + CloudTrail, near real-time
 │   │   └── config-rule/        # AWS Config + SSM Automation, catches drift
-│   └── claude-apps-gateway/     # reference deployment of Anthropic's self-hosted gateway
-│       ├── ecr/                 # phase 1: ECR repository
-│       └── infrastructure/      # phase 2: RDS, ALB, ECS service, IAM, Secrets Manager
+│   ├── claude-apps-gateway/     # reference deployment of Anthropic's self-hosted gateway
+│   │   ├── ecr/                 # phase 1: ECR repository
+│   │   └── infrastructure/      # phase 2: RDS, ALB, ECS service, IAM, Secrets Manager
+│   └── stale-account-detector/  # org-wide CloudTrail Lake scan for unused accounts
 ├── terraform/
 │   ├── auto-remediate-open-ssh-rdp/
 │   │   ├── event-driven/
@@ -60,7 +61,8 @@ aws-cloud-security-toolbox/
 │   ├── sagemaker-notebook-exposure/
 │   │   ├── event-driven/
 │   │   └── config-rule/
-│   └── claude-apps-gateway/     # same reference deployment, single module (2-phase apply)
+│   ├── claude-apps-gateway/     # same reference deployment, single module (2-phase apply)
+│   └── stale-account-detector/
 └── policies/
     ├── scp-guardrails/          # standalone SCP JSON, usable without CFN/TF
     └── ai-ml-guardrails/        # standalone AI/ML SCP JSON, usable without CFN/TF
@@ -216,6 +218,19 @@ stand up an ECS service that needs that image to exist. A working
 example for customer-managed infrastructure, not a supported production
 deployment — same caveat Anthropic's own guide gives about its `aws` CLI
 walkthrough.
+
+### `stale-account-detector`
+
+Scans every **ACTIVE** account in the Organization for CloudTrail
+activity in the last N days, using an organization-wide **CloudTrail
+Lake** event data store queried with plain SQL — no Athena/Glue setup
+required. Emails a report via SNS only when it actually finds stale
+accounts; a clean scan sends nothing. An account with only automated API
+activity but no interactive console sign-in is called out separately in
+the report as context, not conflated with genuine staleness. Complements
+[`security-baseline-new-accounts`](#security-baseline-new-accounts),
+which handles the other end of the account lifecycle — this tool is
+about the accounts that quietly stopped being used.
 
 ## CI
 
