@@ -131,7 +131,7 @@ Resources:
       MultiRegionEnabled: true
       RetentionPeriod: !Ref EventDataStoreRetentionDays
       TerminationProtectionEnabled: true
-      KMSKeyId: !GetAtt LogEncryptionKey.Arn
+      KmsKeyId: !GetAtt LogEncryptionKey.Arn
       AdvancedEventSelectors:
         - Name: "Management events only"
           FieldSelectors:
