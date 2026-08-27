@@ -21,6 +21,7 @@ resource "aws_cloudtrail_event_data_store" "org_activity" {
   multi_region_enabled           = true
   retention_period               = var.event_data_store_retention_days
   termination_protection_enabled = true
+  kms_key_id                     = aws_kms_key.log_encryption.arn
 
   advanced_event_selector {
     name = "Management events only"
@@ -92,6 +93,24 @@ resource "aws_kms_key" "log_encryption" {
           StringEquals = { "kms:CallerAccount" = data.aws_caller_identity.current.account_id }
         }
       },
+      {
+        # CloudTrail Lake needs this to encrypt the event data store.
+        # aws:SourceAccount (not aws:SourceArn) is used deliberately -
+        # the key must exist before the event data store does (the
+        # store references the key's ARN), so the store's own ARN isn't
+        # available yet to scope a SourceArn condition against without
+        # a circular dependency. AWS's own docs call this out as a
+        # supported, if less strict, alternative for exactly this case.
+        Sid       = "AllowCloudTrailToEncryptEventDataStore"
+        Effect    = "Allow"
+        Principal = { Service = "cloudtrail.amazonaws.com" }
+        Action    = ["kms:GenerateDataKey*", "kms:Decrypt", "kms:DescribeKey"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+          StringLike   = { "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:${data.aws_partition.current.partition}:cloudtrail:*:${data.aws_caller_identity.current.account_id}:eventdatastore/*" }
+        }
+      },
     ]
   })
 }
@@ -135,8 +154,8 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*"
       },
       {
-        # Organizations' list/read APIs for the whole org don't support
-        # resource-level scoping.
+        # checkov:skip=CKV_AWS_355: Organizations' list/read APIs for
+        # the whole org don't support resource-level scoping.
         Effect = "Allow"
         Action = [
           "organizations:ListAccounts",

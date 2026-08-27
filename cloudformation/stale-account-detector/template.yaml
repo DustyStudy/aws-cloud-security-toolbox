@@ -67,13 +67,17 @@ Parameters:
 
   ExistingEventDataStoreArn:
     Type: String
-    Default: ""
+    Default: "arn:aws:cloudtrail:us-east-1:000000000000:eventdatastore/00000000-0000-0000-0000-000000000000"
     Description: >
       Full ARN of an existing organization-wide CloudTrail Lake event
       data store to query instead of creating a new one. Required if
-      CreateEventDataStore is false. It must be organization-enabled and
-      include management events, or this tool won't see activity from
-      member accounts.
+      CreateEventDataStore is false (the default value here is just a
+      syntactically-valid placeholder that's never actually used when
+      CreateEventDataStore is true - cfn-lint validates parameter
+      defaults against the ARN pattern regardless of which Fn::If branch
+      is actually selected). It must be organization-enabled and include
+      management events, or this tool won't see activity from member
+      accounts.
 
   EventDataStoreRetentionDays:
     Type: Number
@@ -127,6 +131,7 @@ Resources:
       MultiRegionEnabled: true
       RetentionPeriod: !Ref EventDataStoreRetentionDays
       TerminationProtectionEnabled: true
+      KMSKeyId: !GetAtt LogEncryptionKey.Arn
       AdvancedEventSelectors:
         - Name: "Management events only"
           FieldSelectors:
@@ -196,12 +201,43 @@ Resources:
             Condition:
               StringEquals:
                 kms:CallerAccount: !Ref "AWS::AccountId"
+          - Sid: AllowCloudTrailToEncryptEventDataStore
+            # CloudTrail Lake needs this to encrypt the event data
+            # store. aws:SourceAccount (not aws:SourceArn) is used
+            # deliberately - the key must exist before the event data
+            # store does (the store references the key's ARN), so the
+            # store's own ARN isn't available yet to scope a SourceArn
+            # condition against without a circular dependency. AWS's own
+            # docs call this out as a supported, if less strict,
+            # alternative for exactly this case.
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref "AWS::AccountId"
+              StringLike:
+                kms:EncryptionContext:aws:cloudtrail:arn: !Sub "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:eventdatastore/*"
 
   # ---------------------------------------------------------------------
   # IAM
   # ---------------------------------------------------------------------
   LambdaExecutionRole:
     Type: AWS::IAM::Role
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_355
+            comment: >-
+              organizations:ListAccounts and organizations:ListTagsForResource
+              don't support resource-level scoping - "*" is required for
+              that statement specifically; every other statement in this
+              role's policy is scoped to a specific resource ARN.
     Properties:
       RoleName: !Sub "${AWS::StackName}-detector-role"
       AssumeRolePolicyDocument:

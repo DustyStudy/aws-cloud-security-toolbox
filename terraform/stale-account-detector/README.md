@@ -95,6 +95,11 @@ Works the same in GovCloud.
   store — deleting it also deletes its ingested history, so `terraform
   destroy` won't remove it until you explicitly disable termination
   protection first.
+- The event data store is encrypted with the same customer-managed KMS
+  key used for the Lambda's log group — **once associated, that key
+  can't later be removed or changed** on the event data store (an AWS
+  CloudTrail Lake constraint, not something this module can work
+  around). Plan your key accordingly before the first apply.
 - If your organization already has an [`organization-trail`](../security-baseline-new-accounts/organization-trail/)
   deployed, that's a **separate** resource from a CloudTrail Lake event
   data store (different pricing model, different query mechanism) — this
