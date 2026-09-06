@@ -182,6 +182,17 @@ resource "aws_s3_bucket" "trail" {
   # included - it doubles storage cost and adds a second region/IAM role
   # for a starter template. Add an aws_s3_bucket_replication_configuration
   # if your compliance regime requires geographic redundancy for trail logs.
+  # checkov:skip=CKV_AWS_18: Access logging IS configured, via the
+  # separate aws_s3_bucket_logging resource below (target: the
+  # access_logs bucket in this same file). Same split-resource detection
+  # limitation as the others here (bridgecrewio/checkov issue #3277,
+  # which covers this check specifically).
+  # checkov:skip=CKV_AWS_145: This bucket already uses SSE-KMS with a
+  # customer-managed key (see aws_s3_bucket_server_side_encryption_configuration.trail
+  # below - sse_algorithm = "aws:kms"), via the separate resource the AWS
+  # provider v4+ requires. Same split-resource detection limitation
+  # (bridgecrewio/checkov issue #4624, which covers this check
+  # specifically).
   # checkov:skip=CKV_AWS_19: Encryption IS configured, via the separate
   # aws_s3_bucket_server_side_encryption_configuration resource below (the
   # syntax the AWS provider v4+ requires). This is a known, long-standing
