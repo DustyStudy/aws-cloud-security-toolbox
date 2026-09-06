@@ -22,7 +22,7 @@ resource "aws_sns_topic_subscription" "email" {
 
 resource "aws_sqs_queue" "dlq" {
   name                      = "${var.name_prefix}-remediation-dlq"
-  sqs_managed_sse_enabled   = true
+  kms_master_key_id         = aws_kms_key.log_encryption.arn
   message_retention_seconds = 1209600 # 14 days - time to notice and investigate a failed remediation
 }
 
@@ -56,6 +56,16 @@ resource "aws_kms_key" "log_encryption" {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name_prefix}-remediate-open-ssh-rdp"
           }
+        }
+      },
+      {
+        Sid       = "AllowSQSUseOfKey"
+        Effect    = "Allow"
+        Principal = { Service = "sqs.amazonaws.com" }
+        Action    = ["kms:GenerateDataKey*", "kms:Decrypt"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = { "kms:CallerAccount" = data.aws_caller_identity.current.account_id }
         }
       },
     ]

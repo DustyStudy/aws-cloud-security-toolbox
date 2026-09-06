@@ -660,6 +660,20 @@ Resources:
 
   HttpsListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_103
+            comment: >-
+              ELBSecurityPolicy-TLS13-1-2-2021-06 is AWS's own current
+              default and recommended policy, with a TLS 1.2 floor and
+              TLS 1.3 support - it satisfies "at least TLS 1.2" and then
+              some. This is a known, long-standing Checkov limitation
+              (bridgecrewio/checkov issues #3570, #4962) where the check
+              doesn't recognize TLS 1.3-labeled policies as meeting a
+              TLS 1.2 minimum. Downgrading to a TLS-1.2-only policy just
+              to satisfy the linter would be a real security regression
+              to fix a false positive.
     Properties:
       LoadBalancerArn: !Ref LoadBalancer
       Protocol: HTTPS

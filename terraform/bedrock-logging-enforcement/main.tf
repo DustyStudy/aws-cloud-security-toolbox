@@ -85,6 +85,15 @@ resource "aws_s3_bucket" "bedrock_logs" {
   # checkov:skip=CKV_AWS_145: Bedrock's S3 log-delivery mechanism does not
   # support SSE-KMS destination buckets - SSE-S3 is required here. This is
   # a documented AWS limitation, not an oversight.
+  # checkov:skip=CKV_AWS_19: Encryption IS configured, via the separate
+  # aws_s3_bucket_server_side_encryption_configuration resource below (the
+  # syntax the AWS provider v4+ requires). This is a known, long-standing
+  # Checkov limitation with detecting the split-resource S3 pattern
+  # (bridgecrewio/checkov issues #3277, #3847, #4624, among others).
+  # checkov:skip=CKV_AWS_21: Same root cause as CKV_AWS_19 above -
+  # versioning IS enabled, via the separate aws_s3_bucket_versioning
+  # resource below; Checkov's split-resource detection doesn't reliably
+  # associate it with this bucket.
   bucket = "${var.name_prefix}-bedrock-invocation-logs-${data.aws_caller_identity.current.account_id}"
 }
 

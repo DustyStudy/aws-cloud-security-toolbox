@@ -469,6 +469,15 @@ resource "aws_s3_bucket" "alb_logs" {
   # limitation, not an oversight.
   # checkov:skip=CKV2_AWS_62: Pure write-once access-log target - nothing
   # downstream consumes events from it, so notifications add no value here.
+  # checkov:skip=CKV_AWS_19: Encryption IS configured, via the separate
+  # aws_s3_bucket_server_side_encryption_configuration resource below (the
+  # syntax the AWS provider v4+ requires). This is a known, long-standing
+  # Checkov limitation with detecting the split-resource S3 pattern
+  # (bridgecrewio/checkov issues #3277, #3847, #4624, among others).
+  # checkov:skip=CKV_AWS_21: Same root cause as CKV_AWS_19 above -
+  # versioning IS enabled, via the separate aws_s3_bucket_versioning
+  # resource below; Checkov's split-resource detection doesn't reliably
+  # associate it with this bucket.
   bucket = "${var.name_prefix}-alb-logs-${data.aws_caller_identity.current.account_id}"
 }
 
@@ -648,6 +657,14 @@ resource "aws_lb_target_group" "gateway" {
 }
 
 resource "aws_lb_listener" "https" {
+  # checkov:skip=CKV_AWS_103: ELBSecurityPolicy-TLS13-1-2-2021-06 is AWS's
+  # own current default and recommended policy, with a TLS 1.2 floor and
+  # TLS 1.3 support - it satisfies "at least TLS 1.2" and then some. This
+  # is a known, long-standing Checkov limitation (bridgecrewio/checkov
+  # issues #3570, #4962) where the check doesn't recognize TLS
+  # 1.3-labeled policies as meeting a TLS 1.2 minimum. Downgrading to a
+  # TLS-1.2-only policy just to satisfy the linter would be a real
+  # security regression to fix a false positive.
   load_balancer_arn = aws_lb.gateway.arn
   protocol          = "HTTPS"
   port              = 443
