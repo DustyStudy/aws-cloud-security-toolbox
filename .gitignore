@@ -13,6 +13,10 @@ override.tf.json
 build/
 *.zip
 
+# Python
+__pycache__/
+*.pyc
+
 # OS/editor
 .DS_Store
 .vscode/
