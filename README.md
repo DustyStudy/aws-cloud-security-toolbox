@@ -42,7 +42,8 @@ aws-cloud-security-toolbox/
 │   ├── claude-apps-gateway/     # reference deployment of Anthropic's self-hosted gateway
 │   │   ├── ecr/                 # phase 1: ECR repository
 │   │   └── infrastructure/      # phase 2: RDS, ALB, ECS service, IAM, Secrets Manager
-│   └── stale-account-detector/  # org-wide CloudTrail Lake scan for unused accounts
+│   ├── stale-account-detector/  # org-wide CloudTrail Lake scan for unused accounts
+│   └── wiz-finding-bridge/      # API Gateway + Lambda bridge for Wiz webhook findings
 ├── terraform/
 │   ├── auto-remediate-open-ssh-rdp/
 │   │   ├── event-driven/
@@ -64,13 +65,32 @@ aws-cloud-security-toolbox/
 │   │   ├── event-driven/
 │   │   └── config-rule/
 │   ├── claude-apps-gateway/     # same reference deployment, single module (2-phase apply)
-│   └── stale-account-detector/
+│   ├── stale-account-detector/
+│   └── wiz-finding-bridge/
 └── policies/
     ├── scp-guardrails/          # standalone SCP JSON, usable without CFN/TF
     └── ai-ml-guardrails/        # standalone AI/ML SCP JSON, usable without CFN/TF
 ```
 
 ## Templates
+
+| Module | Type | What it does |
+|---|---|---|
+| [`auto-remediate-open-ssh-rdp`](#auto-remediate-open-ssh-rdp) | Auto-remediation | Revokes security group rules that open SSH/RDP to the internet |
+| [`scp-guardrails`](#scp-guardrails) | Preventive | SCP library: deny root, deny disabling security services, require IMDSv2, more |
+| [`root-activity-alarm`](#root-activity-alarm) | Detective | Real-time alert on any root user activity |
+| [`iam-credential-hygiene`](#iam-credential-hygiene) | Auto-remediation | Deactivates stale/unused IAM access keys |
+| [`identity-center-access-auditor`](#identity-center-access-auditor) | Detective | Flags over-privileged or misassigned Identity Center permission sets |
+| [`ec2-isolation-runbook`](#ec2-isolation-runbook) | On-demand response | Quarantines a suspected-compromised EC2 instance |
+| [`security-baseline-new-accounts`](#security-baseline-new-accounts) | Preventive | Auto-enables GuardDuty/Config/Security Hub + an org CloudTrail on every account |
+| [`ai-ml-guardrails`](#ai-ml-guardrails) | Preventive | SCP library protecting Bedrock logging and SageMaker notebook config |
+| [`bedrock-logging-enforcement`](#bedrock-logging-enforcement) | Auto-remediation | Re-enables Bedrock invocation logging if it's disabled |
+| [`ai-agent-iam-auditor`](#ai-agent-iam-auditor) | Detective | Flags over-permissioned IAM roles trusted by AI/agent services |
+| [`bedrock-cost-guardrails`](#bedrock-cost-guardrails) | Detective | Budget ceiling + anomaly detection on Bedrock spend |
+| [`sagemaker-notebook-exposure`](#sagemaker-notebook-exposure) | Auto-remediation | Locks down SageMaker notebooks with internet or root access enabled |
+| [`claude-apps-gateway`](#claude-apps-gateway) | Reference | Deployment reference for Claude apps gateway on AWS |
+| [`stale-account-detector`](#stale-account-detector) | Detective | Finds accounts with no CloudTrail activity in N days |
+| [`wiz-finding-bridge`](#wiz-finding-bridge) | Detective | Bridges Wiz webhook findings into SNS and this repo's own remediation Lambdas |
 
 ### `auto-remediate-open-ssh-rdp`
 
@@ -247,6 +267,22 @@ the report as context, not conflated with genuine staleness. Complements
 [`security-baseline-new-accounts`](#security-baseline-new-accounts),
 which handles the other end of the account lifecycle — this tool is
 about the accounts that quietly stopped being used.
+
+### `wiz-finding-bridge`
+
+Receives Wiz webhook deliveries via an API Gateway HTTP API and bridges
+them into this repo's existing patterns: an SNS notification, and
+optionally an invocation of one of this repo's own remediation Lambdas
+when a finding matches a configured mapping. **Schema-tolerant by
+design**: Wiz's webhook JSON shape is read via configurable dot-notation
+field paths rather than hardcoded keys, and the raw payload is always
+included in the notification so the correct paths can be identified from
+a real finding rather than guessed. Authenticates deliveries via a long
+random secret embedded in the webhook URL path, matching the only
+configuration surface Wiz's basic Webhook integration exposes (a
+destination URL, no custom headers). See the module README before
+relying on this in production — it needs a short tuning pass against a
+real Wiz payload first.
 
 ## CI
 
