@@ -4,9 +4,7 @@
 
 If you discover a security vulnerability in this repository, please report it privately — **do not open a public GitHub issue**.
 
-**Preferred method:** Use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability) feature (Security tab → "Report a vulnerability" on this repo).
-
-**Alternative:** Email [YOUR_EMAIL_HERE] with a description of the issue, steps to reproduce, and any relevant logs or templates. Please do not include real AWS account IDs, ARNs, or credentials in your report.
+Use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability) feature (Security tab → "Report a vulnerability" on this repo). Please do not include real AWS account IDs, ARNs, or credentials in your report.
 
 You can expect an initial response within 5 business days.
 
@@ -22,9 +20,5 @@ Out of scope: vulnerabilities in AWS services themselves (report those to AWS), 
 
 ## Supported Versions
 
-Only the latest tagged release is actively supported. Older releases may not receive security fixes.
-
-| Version | Supported |
-| ------- | --------- |
-| Latest release | :white_check_mark: |
-| Older releases | :x: |
+This repository doesn't ship versioned releases — the `main` branch is the
+single source of truth and the only branch that receives fixes.
