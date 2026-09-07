@@ -102,6 +102,11 @@ Works the same in GovCloud.
 
 ## Notes
 
+- **IAM Action prefix vs. SDK client name**: the boto3/SDK client for this
+  API is called `sso-admin`, but its IAM Action prefix is `sso:` (e.g.
+  `sso:ListPermissionSets`) — the two don't match, which is easy to get
+  wrong when hand-writing the Lambda's execution-role policy. `cfn-lint`
+  will catch `sso-admin:*` actions as invalid if you extend this policy.
 - Only **AWS-managed** policy content is evaluated for check 1.
   Customer-managed policies attached to a permission set are counted and
   named in the report, but their content isn't fetched — the underlying

@@ -102,19 +102,21 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*"
       },
       {
-        # checkov:skip=CKV_AWS_355: sso-admin's read/list APIs don't
+        # checkov:skip=CKV_AWS_355: the IAM Identity Center admin API's
+        # IAM Action prefix is "sso:", not "sso-admin:" - "sso-admin" is
+        # only the boto3/SDK client name. None of these read/list actions
         # support resource-level scoping to a specific instance or
         # permission set ARN - AWS's own example policies use "*" here.
         Effect = "Allow"
         Action = [
-          "sso-admin:ListInstances",
-          "sso-admin:ListPermissionSets",
-          "sso-admin:DescribePermissionSet",
-          "sso-admin:ListManagedPoliciesInPermissionSet",
-          "sso-admin:GetInlinePolicyForPermissionSet",
-          "sso-admin:ListCustomerManagedPolicyReferencesInPermissionSet",
-          "sso-admin:ListAccountsForProvisionedPermissionSet",
-          "sso-admin:ListAccountAssignments",
+          "sso:ListInstances",
+          "sso:ListPermissionSets",
+          "sso:DescribePermissionSet",
+          "sso:ListManagedPoliciesInPermissionSet",
+          "sso:GetInlinePolicyForPermissionSet",
+          "sso:ListCustomerManagedPolicyReferencesInPermissionSet",
+          "sso:ListAccountsForProvisionedPermissionSet",
+          "sso:ListAccountAssignments",
         ]
         Resource = "*"
       },
@@ -187,10 +189,10 @@ resource "aws_lambda_function" "audit" {
 
   environment {
     variables = {
-      SNS_TOPIC_ARN                  = aws_sns_topic.audit.arn
-      SENSITIVE_WILDCARD_SERVICES    = join(",", var.sensitive_wildcard_services)
-      FLAG_DIRECT_USER_ASSIGNMENTS   = tostring(var.flag_direct_user_assignments)
-      REPORT_UNUSED_PERMISSION_SETS  = tostring(var.report_unused_permission_sets)
+      SNS_TOPIC_ARN                 = aws_sns_topic.audit.arn
+      SENSITIVE_WILDCARD_SERVICES   = join(",", var.sensitive_wildcard_services)
+      FLAG_DIRECT_USER_ASSIGNMENTS  = tostring(var.flag_direct_user_assignments)
+      REPORT_UNUSED_PERMISSION_SETS = tostring(var.report_unused_permission_sets)
     }
   }
 }

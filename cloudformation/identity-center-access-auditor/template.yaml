@@ -157,18 +157,21 @@ Resources:
                 Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"
               - Effect: Allow
                 Action:
-                  - sso-admin:ListInstances
-                  - sso-admin:ListPermissionSets
-                  - sso-admin:DescribePermissionSet
-                  - sso-admin:ListManagedPoliciesInPermissionSet
-                  - sso-admin:GetInlinePolicyForPermissionSet
-                  - sso-admin:ListCustomerManagedPolicyReferencesInPermissionSet
-                  - sso-admin:ListAccountsForProvisionedPermissionSet
-                  - sso-admin:ListAccountAssignments
+                  - sso:ListInstances
+                  - sso:ListPermissionSets
+                  - sso:DescribePermissionSet
+                  - sso:ListManagedPoliciesInPermissionSet
+                  - sso:GetInlinePolicyForPermissionSet
+                  - sso:ListCustomerManagedPolicyReferencesInPermissionSet
+                  - sso:ListAccountsForProvisionedPermissionSet
+                  - sso:ListAccountAssignments
                 Resource: "*"
-                # sso-admin's read/list APIs don't support resource-level
-                # scoping to a specific instance or permission set ARN -
-                # AWS's own example policies for this use case use "*".
+                # The IAM Identity Center admin API's IAM Action prefix is
+                # "sso:", not "sso-admin:" - "sso-admin" is only the
+                # boto3/SDK client name (see the Lambda's service
+                # namespace). None of these read/list actions support
+                # resource-level scoping to a specific instance or
+                # permission set ARN - AWS's own example policies use "*".
               - Effect: Allow
                 Action:
                   - identitystore:DescribeUser
