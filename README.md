@@ -27,6 +27,7 @@ aws-cloud-security-toolbox/
 │   ├── scp-guardrails/         # deploys the SCPs below, attached to Organizations targets
 │   ├── root-activity-alarm/    # EventBridge -> SNS on any root activity
 │   ├── iam-credential-hygiene/ # scheduled deactivation of stale IAM keys
+│   ├── identity-center-access-auditor/ # detective scan for over-privileged/misassigned Identity Center access
 │   ├── ec2-isolation-runbook/  # on-demand SSM runbook to quarantine a compromised instance
 │   ├── security-baseline-new-accounts/
 │   │   ├── member-baseline/    # StackSet: GuardDuty+SecurityHub+Config for every account in an OU
@@ -50,6 +51,7 @@ aws-cloud-security-toolbox/
 │   ├── scp-guardrails/
 │   ├── root-activity-alarm/
 │   ├── iam-credential-hygiene/
+│   ├── identity-center-access-auditor/
 │   ├── ec2-isolation-runbook/
 │   ├── security-baseline-new-accounts/
 │   │   ├── member-baseline/
@@ -113,6 +115,20 @@ Scans every IAM user's access keys on a schedule and **deactivates**
 via SNS. Closes one of the most common CIS Benchmark / Wiz / Security Hub
 findings automatically instead of relying on someone reviewing a
 credential report.
+
+### `identity-center-access-auditor`
+
+A scheduled, **detective-only** audit of AWS IAM Identity Center
+(successor to AWS SSO): flags permission sets carrying
+`AdministratorAccess` or risky wildcard inline-policy statements, flags
+account assignments made directly to a user instead of a group, and
+reports unused permission sets as an informational addendum. A single
+over-privileged permission set assigned org-wide, or access tracked
+person-by-person instead of through groups, is exactly the kind of
+governance drift that's invisible until an audit — or an incident —
+goes looking for it. Never modifies a permission set or assignment.
+Deploy once, from the account where Identity Center is enabled (the
+management account or a delegated administrator account).
 
 ### `ec2-isolation-runbook`
 
