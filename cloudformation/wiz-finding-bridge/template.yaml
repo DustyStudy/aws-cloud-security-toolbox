@@ -116,6 +116,7 @@ Resources:
         Long random token that must appear as the last path segment of
         the webhook URL pasted into Wiz's Webhook integration. Retrieve
         the generated value after deploy - see the module README.
+      KmsKeyId: !GetAtt LogEncryptionKey.Arn
       GenerateSecretString:
         PasswordLength: 40
         ExcludePunctuation: true
@@ -138,7 +139,7 @@ Resources:
   LogEncryptionKey:
     Type: AWS::KMS::Key
     Properties:
-      Description: !Sub "Encrypts the ${AWS::StackName} Wiz finding bridge Lambda's log group and API Gateway access log group."
+      Description: !Sub "Encrypts the ${AWS::StackName} Wiz finding bridge Lambda's log group, API Gateway access log group, and the webhook secret."
       EnableKeyRotation: true
       KeyPolicy:
         Version: "2012-10-17"
@@ -230,6 +231,13 @@ Resources:
               This function only calls Secrets Manager/SNS/Lambda control-
               plane APIs over public AWS endpoints - it doesn't touch any
               resource inside a customer VPC.
+          - id: CKV_AWS_116
+            comment: >-
+              A dead-letter queue only captures failures from
+              asynchronous Lambda invocations. This function is invoked
+              synchronously by API Gateway (AWS_PROXY integration), which
+              receives the error directly in its response - a DLQ here
+              would never receive anything to capture.
     Properties:
       FunctionName: !Sub "${AWS::StackName}-wiz-webhook-bridge"
       Description: Bridges Wiz webhook findings into SNS and, optionally, this repo's own remediation Lambdas.

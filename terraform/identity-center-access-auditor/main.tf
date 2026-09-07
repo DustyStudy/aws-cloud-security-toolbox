@@ -189,10 +189,10 @@ resource "aws_lambda_function" "audit" {
 
   environment {
     variables = {
-      SNS_TOPIC_ARN                  = aws_sns_topic.audit.arn
-      SENSITIVE_WILDCARD_SERVICES    = join(",", var.sensitive_wildcard_services)
-      FLAG_DIRECT_USER_ASSIGNMENTS   = tostring(var.flag_direct_user_assignments)
-      REPORT_UNUSED_PERMISSION_SETS  = tostring(var.report_unused_permission_sets)
+      SNS_TOPIC_ARN                 = aws_sns_topic.audit.arn
+      SENSITIVE_WILDCARD_SERVICES   = join(",", var.sensitive_wildcard_services)
+      FLAG_DIRECT_USER_ASSIGNMENTS  = tostring(var.flag_direct_user_assignments)
+      REPORT_UNUSED_PERMISSION_SETS = tostring(var.report_unused_permission_sets)
     }
   }
 }

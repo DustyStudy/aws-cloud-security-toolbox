@@ -22,6 +22,7 @@ resource "aws_secretsmanager_secret" "webhook_secret" {
   # it in Wiz) if you suspect exposure.
   name        = "${var.name_prefix}-wiz-webhook-secret"
   description = "Long random token that must appear as the last path segment of the webhook URL pasted into Wiz's Webhook integration. See the module README."
+  kms_key_id  = aws_kms_key.log_encryption.arn
 }
 
 resource "aws_secretsmanager_secret_version" "webhook_secret" {
@@ -42,11 +43,11 @@ resource "aws_sns_topic_subscription" "email" {
 }
 
 resource "aws_kms_key" "log_encryption" {
-  description         = "Encrypts the ${var.name_prefix} Wiz finding bridge Lambda's log group and API Gateway access log group."
+  description         = "Encrypts the ${var.name_prefix} Wiz finding bridge Lambda's log group, API Gateway access log group, and the webhook secret."
   enable_key_rotation = true
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Sid       = "EnableIAMUserPermissions"
@@ -59,14 +60,14 @@ resource "aws_kms_key" "log_encryption" {
         Sid       = "AllowCloudWatchLogsUseOfKey"
         Effect    = "Allow"
         Principal = { Service = "logs.${data.aws_region.current.region}.amazonaws.com" }
-        Action    = [
+        Action = [
           "kms:Encrypt*",
           "kms:Decrypt*",
           "kms:ReEncrypt*",
           "kms:GenerateDataKey*",
           "kms:Describe*",
         ]
-        Resource  = "*"
+        Resource = "*"
         Condition = {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:*"
@@ -81,7 +82,7 @@ resource "aws_iam_role" "lambda_exec" {
   name = "${var.name_prefix}-wiz-finding-bridge-role"
 
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
       Principal = { Service = "lambda.amazonaws.com" }
@@ -95,7 +96,7 @@ resource "aws_iam_role_policy" "lambda_exec" {
   role = aws_iam_role.lambda_exec.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
@@ -136,7 +137,7 @@ resource "aws_iam_role_policy" "remediation_invoke" {
   role  = aws_iam_role.lambda_exec.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"
@@ -151,6 +152,11 @@ resource "aws_lambda_function" "bridge" {
   # checkov:skip=CKV_AWS_117: Control-plane only Lambda (Secrets Manager/
   # SNS/Lambda APIs over public AWS endpoints) - no customer VPC
   # resources touched.
+  # checkov:skip=CKV_AWS_116: a dead-letter queue only captures failures
+  # from asynchronous Lambda invocations. This function is invoked
+  # synchronously by API Gateway (AWS_PROXY integration), which receives
+  # the error directly in its response - a DLQ here would never receive
+  # anything to capture.
   function_name                  = "${var.name_prefix}-wiz-webhook-bridge"
   description                    = "Bridges Wiz webhook findings into SNS and, optionally, this repo's own remediation Lambdas."
   role                           = aws_iam_role.lambda_exec.arn
