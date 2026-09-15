@@ -1,5 +1,9 @@
 # aws-cloud-security-toolbox
 
+[![Lint and Security Scan](https://github.com/DustyStudy/aws-cloud-security-toolbox/actions/workflows/lint-and-scan.yml/badge.svg)](https://github.com/DustyStudy/aws-cloud-security-toolbox/actions/workflows/lint-and-scan.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![AWS](https://img.shields.io/badge/AWS-Commercial%20%2B%20GovCloud-orange)](#)
+
 Practical CloudFormation and Terraform for cloud security engineers —
 guardrails, auto-remediation, and detection templates for day-to-day AWS
 security work. Every template is written to run in both **AWS commercial
