@@ -209,6 +209,8 @@ resource "aws_apigatewayv2_integration" "bridge" {
 
 resource "aws_apigatewayv2_route" "bridge" {
   # checkov:skip=CKV_AWS_59: intentionally no IAM/JWT authorizer here -
+  # checkov:skip=CKV_AWS_309: same reason, newer Checkov versions flag
+  # this route's missing authorization type under both check IDs -
   # this endpoint authenticates the caller via an unguessable secret path
   # segment instead, matching the only configuration surface Wiz's basic
   # Webhook integration exposes (a destination URL, no custom headers).
