@@ -38,10 +38,10 @@ RISKY_CIDR_V4 = "0.0.0.0/0"
 RISKY_CIDR_V6 = "::/0"
 
 
-def _port_range_overlaps_risky(from_port, to_port):
+def _port_range_overlaps_risky(protocol, from_port, to_port):
     """Return True if the given port range includes 22 or 3389, or if the
     rule has no port restriction at all (protocol -1 / from-to missing)."""
-    if from_port is None or to_port is None:
+    if str(protocol) == "-1" or from_port is None or to_port is None:
         return True
     for port in RISKY_PORTS:
         if from_port <= port <= to_port:
@@ -67,7 +67,7 @@ def _revoke_from_permissions(group_id, ip_permissions, source):
     for perm in ip_permissions:
         from_port = perm.get("FromPort")
         to_port = perm.get("ToPort")
-        if not _port_range_overlaps_risky(from_port, to_port):
+        if not _port_range_overlaps_risky(perm.get("IpProtocol"), from_port, to_port):
             continue
 
         bad_v4 = [r for r in perm.get("IpRanges", []) if r.get("CidrIp") == RISKY_CIDR_V4]
@@ -76,11 +76,14 @@ def _revoke_from_permissions(group_id, ip_permissions, source):
         if not bad_v4 and not bad_v6:
             continue
 
-        revoke_perm = {
-            "IpProtocol": perm.get("IpProtocol", "tcp"),
-            "FromPort": from_port,
-            "ToPort": to_port,
-        }
+        revoke_perm = {"IpProtocol": perm.get("IpProtocol", "tcp")}
+        # An all-traffic rule (IpProtocol "-1") has no ports; passing
+        # FromPort/ToPort as None would fail boto3 parameter validation.
+        if str(revoke_perm["IpProtocol"]) != "-1":
+            if from_port is not None:
+                revoke_perm["FromPort"] = from_port
+            if to_port is not None:
+                revoke_perm["ToPort"] = to_port
         if bad_v4:
             revoke_perm["IpRanges"] = bad_v4
         if bad_v6:

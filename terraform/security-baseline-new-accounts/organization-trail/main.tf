@@ -14,6 +14,10 @@ locals {
   # struggle with conditionally-omitted policy statements) while being
   # functionally inert when organization_id isn't set.
   effective_org_id = var.organization_id != "" ? var.organization_id : "o-00000000disabled"
+
+  # Built from strings rather than referencing aws_cloudtrail.organization,
+  # which depends on the bucket/topic policies that use it (avoids a cycle).
+  trail_arn = "arn:${data.aws_partition.current.partition}:cloudtrail:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:trail/${var.trail_name}"
 }
 
 resource "aws_kms_key" "trail" {
@@ -47,6 +51,16 @@ resource "aws_kms_key" "trail" {
         Effect    = "Allow"
         Principal = { Service = "cloudtrail.amazonaws.com" }
         Action    = "kms:DescribeKey"
+        Resource  = "*"
+      },
+      {
+        # SNS needs the publisher (CloudTrail) to be able to use the topic's
+        # key. The AWS-managed aws/sns key can't grant this, so the topic is
+        # encrypted with this customer-managed key instead.
+        Sid       = "AllowCloudTrailToPublishToEncryptedTopic"
+        Effect    = "Allow"
+        Principal = { Service = "cloudtrail.amazonaws.com" }
+        Action    = ["kms:GenerateDataKey*", "kms:Decrypt"]
         Resource  = "*"
       },
       {
@@ -275,6 +289,9 @@ resource "aws_s3_bucket_policy" "trail" {
         Principal = { Service = "cloudtrail.amazonaws.com" }
         Action    = "s3:GetBucketAcl"
         Resource  = aws_s3_bucket.trail.arn
+        Condition = {
+          StringEquals = { "aws:SourceArn" = local.trail_arn }
+        }
       },
       {
         Sid       = "AWSCloudTrailWriteOrgTrail"
@@ -283,7 +300,10 @@ resource "aws_s3_bucket_policy" "trail" {
         Action    = "s3:PutObject"
         Resource  = "${aws_s3_bucket.trail.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
         Condition = {
-          StringEquals = { "s3:x-amz-acl" = "bucket-owner-full-control" }
+          StringEquals = {
+            "s3:x-amz-acl"  = "bucket-owner-full-control"
+            "aws:SourceArn" = local.trail_arn
+          }
         }
       },
       {
@@ -293,7 +313,20 @@ resource "aws_s3_bucket_policy" "trail" {
         Action    = "s3:PutObject"
         Resource  = "${aws_s3_bucket.trail.arn}/AWSLogs/*"
         Condition = {
-          StringEquals = { "s3:x-amz-acl" = "bucket-owner-full-control" }
+          StringEquals = {
+            "s3:x-amz-acl"  = "bucket-owner-full-control"
+            "aws:SourceArn" = local.trail_arn
+          }
+        }
+      },
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.trail.arn, "${aws_s3_bucket.trail.arn}/*"]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
         }
       },
     ]
@@ -307,7 +340,7 @@ resource "aws_s3_bucket_notification" "trail" {
 
 resource "aws_sns_topic" "trail" {
   name              = "${var.trail_name}-notifications"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.trail.arn
 }
 
 resource "aws_sns_topic_policy" "trail" {
@@ -321,6 +354,9 @@ resource "aws_sns_topic_policy" "trail" {
       Principal = { Service = "cloudtrail.amazonaws.com" }
       Action    = "sns:Publish"
       Resource  = aws_sns_topic.trail.arn
+      Condition = {
+        StringEquals = { "aws:SourceArn" = local.trail_arn }
+      }
     }]
   })
 }

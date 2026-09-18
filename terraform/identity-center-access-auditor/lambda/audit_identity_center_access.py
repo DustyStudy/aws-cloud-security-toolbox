@@ -88,17 +88,17 @@ def _notify(subject, message):
 
 def _paginate(method, result_key, **kwargs):
     """Manual NextToken pagination - sso-admin's list_* operations all
-    follow this same NextToken/MaxResults shape."""
+    follow this same NextToken/MaxResults shape. API errors propagate: a
+    detective audit that swallows AccessDenied would report a false
+    "no findings", so let the invocation fail visibly (Lambda Errors
+    metric / DLQ) instead. Callers that are genuinely best-effort catch
+    ClientError themselves."""
     next_token = None
     while True:
         call_kwargs = dict(kwargs)
         if next_token:
             call_kwargs["NextToken"] = next_token
-        try:
-            page = method(**call_kwargs)
-        except ClientError:
-            logger.exception("Paginated call failed: %s", getattr(method, "__name__", method))
-            return
+        page = method(**call_kwargs)
         for item in page.get(result_key, []):
             yield item
         next_token = page.get("NextToken")
@@ -140,6 +140,11 @@ def _statement_is_risky(statement):
     if "*" in actions:
         return "full wildcard action ('*')"
 
+    # Allow + NotAction grants every action *except* the listed ones, which
+    # on Resource "*" is effectively near-admin access.
+    if statement.get("NotAction") is not None and has_wildcard_resource:
+        return "Allow with NotAction on Resource '*' (grants everything except the listed actions)"
+
     if has_wildcard_resource:
         for action in actions:
             if ":" not in action:
@@ -170,7 +175,8 @@ def _inline_policy_findings(instance_arn, permission_set_arn):
         logger.exception("Inline policy for %s was not valid JSON", permission_set_arn)
         return findings
 
-    for statement in doc.get("Statement", []):
+    # "Statement" may be a single object rather than a list - both are valid IAM.
+    for statement in _as_list(doc.get("Statement")):
         if not isinstance(statement, dict):
             continue
         reason = _statement_is_risky(statement)

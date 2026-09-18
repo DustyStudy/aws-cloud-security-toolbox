@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Receives Wiz webhook deliveries via an API Gateway HTTP API and bridges
   them into this repo's patterns: an SNS notification, and optionally an
-  invocation of one of this repo's own remediation Lambdas for findings
-  that match a configured mapping. Schema-tolerant by design - see the
+  invocation of a remediation Lambda you supply for findings that match
+  a configured mapping. Schema-tolerant by design - see the
   module README before relying on this in production. Works in AWS
   commercial and GovCloud.
 
@@ -240,7 +240,7 @@ Resources:
               would never receive anything to capture.
     Properties:
       FunctionName: !Sub "${AWS::StackName}-wiz-webhook-bridge"
-      Description: Bridges Wiz webhook findings into SNS and, optionally, this repo's own remediation Lambdas.
+      Description: Bridges Wiz webhook findings into SNS and, optionally, a remediation Lambda you supply.
       Runtime: python3.12
       Handler: wiz_webhook_bridge.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn

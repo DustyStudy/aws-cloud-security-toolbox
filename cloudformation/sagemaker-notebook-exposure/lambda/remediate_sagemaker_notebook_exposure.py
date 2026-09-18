@@ -129,11 +129,29 @@ def _finish_remediation(name, description=None):
         _clear_pending_tag(arn)
         return
 
-    sagemaker.update_notebook_instance(
-        NotebookInstanceName=name,
-        DirectInternetAccess="Disabled",
-        RootAccess="Disabled",
-    )
+    try:
+        sagemaker.update_notebook_instance(
+            NotebookInstanceName=name,
+            DirectInternetAccess="Disabled",
+            RootAccess="Disabled",
+        )
+    except ClientError as e:
+        # e.g. DirectInternetAccess can't be Disabled on a notebook that has
+        # no subnet (no VPC) - it has to be recreated inside a VPC instead.
+        logger.exception("Failed to update notebook %s", name)
+        _notify(
+            subject=f"FAILED to remediate SageMaker notebook {name}",
+            message=(
+                f"Notebook {name} is stopped and still has DirectInternetAccess="
+                f"{description.get('DirectInternetAccess')} / RootAccess="
+                f"{description.get('RootAccess')}. The update failed: "
+                f"{e.response.get('Error', {}).get('Message', str(e))} "
+                "Manual remediation is required (a notebook with no VPC subnet "
+                "must be recreated inside a VPC). The pending-remediation tag "
+                "has been left in place."
+            ),
+        )
+        return
     _clear_pending_tag(arn)
 
     restarted = False

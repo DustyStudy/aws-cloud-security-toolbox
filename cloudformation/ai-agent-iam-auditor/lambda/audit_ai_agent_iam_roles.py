@@ -92,7 +92,10 @@ def _notify(subject, message):
 
 def _principals_from_trust_policy(trust_policy):
     services = set()
-    for statement in trust_policy.get("Statement", []):
+    # "Statement" may be a single object rather than a list - both are valid IAM.
+    for statement in _as_list(trust_policy.get("Statement")):
+        if not isinstance(statement, dict):
+            continue
         principal = statement.get("Principal", {})
         if not isinstance(principal, dict):
             continue
@@ -128,6 +131,11 @@ def _statement_is_risky(statement):
     if "*" in actions:
         return "full wildcard action ('*')"
 
+    # Allow + NotAction grants every action *except* the listed ones, which
+    # on Resource "*" is effectively near-admin access.
+    if statement.get("NotAction") is not None and has_wildcard_resource:
+        return "Allow with NotAction on Resource '*' (grants everything except the listed actions)"
+
     if has_wildcard_resource:
         for action in actions:
             if ":" not in action:
@@ -140,10 +148,9 @@ def _statement_is_risky(statement):
 
 
 def _evaluate_policy_document(doc, source_label, findings):
-    for statement in doc.get("Statement", []):
-        # Statement can be a single dict or (rarely) handled elsewhere as a list -
-        # list_role_policies/get_role_policy always returns a dict with Statement
-        # being a list already, but guard just in case a single-statement dict slips through.
+    # "Statement" may be a single object rather than a list - both are valid
+    # IAM, and iterating a dict here would silently skip the whole policy.
+    for statement in _as_list(doc.get("Statement")):
         if isinstance(statement, dict):
             reason = _statement_is_risky(statement)
             if reason:

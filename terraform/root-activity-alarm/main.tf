@@ -1,6 +1,37 @@
+data "aws_partition" "current" {}
+data "aws_caller_identity" "current" {}
+
+# EventBridge publishes to this topic as a service principal, which can't
+# use the AWS-managed aws/sns key (its key policy can't be edited to allow
+# it) - without a customer-managed key, alerts would silently never arrive.
+resource "aws_kms_key" "topic" {
+  description         = "Encrypts the ${var.name_prefix} root-activity SNS topic (customer-managed so EventBridge can publish to it)."
+  enable_key_rotation = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableIAMUserPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowEventBridgeToUseKey"
+        Effect    = "Allow"
+        Principal = { Service = "events.amazonaws.com" }
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource  = "*"
+      },
+    ]
+  })
+}
+
 resource "aws_sns_topic" "root_activity" {
   name              = "${var.name_prefix}-root-activity-alerts"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.topic.arn
 }
 
 resource "aws_sns_topic_subscription" "email" {

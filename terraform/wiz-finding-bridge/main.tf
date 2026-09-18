@@ -158,7 +158,7 @@ resource "aws_lambda_function" "bridge" {
   # the error directly in its response - a DLQ here would never receive
   # anything to capture.
   function_name                  = "${var.name_prefix}-wiz-webhook-bridge"
-  description                    = "Bridges Wiz webhook findings into SNS and, optionally, this repo's own remediation Lambdas."
+  description                    = "Bridges Wiz webhook findings into SNS and, optionally, a remediation Lambda you supply."
   role                           = aws_iam_role.lambda_exec.arn
   handler                        = "wiz_webhook_bridge.lambda_handler"
   runtime                        = "python3.12"

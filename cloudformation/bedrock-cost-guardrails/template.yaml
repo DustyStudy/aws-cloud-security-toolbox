@@ -39,11 +39,40 @@ Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
 
 Resources:
+  # Budgets and Cost Anomaly Detection publish as service principals, which
+  # can't use the AWS-managed aws/sns key (its key policy can't be edited to
+  # allow them) - without a customer-managed key, alerts would silently never
+  # arrive.
+  CostAlertsTopicKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "Encrypts the ${AWS::StackName} Bedrock cost-alerts SNS topic (customer-managed so Budgets and Cost Anomaly Detection can publish to it)."
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableIAMUserPermissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: AllowBudgetsAndCostAnomalyDetectionToUseKey
+            Effect: Allow
+            Principal:
+              Service:
+                - budgets.amazonaws.com
+                - costalerts.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey*
+            Resource: "*"
+
   CostAlertsTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub "${AWS::StackName}-bedrock-cost-alerts"
-      KmsMasterKeyId: alias/aws/sns
+      KmsMasterKeyId: !Ref CostAlertsTopicKey
 
   CostAlertsTopicSubscription:
     Type: AWS::SNS::Subscription

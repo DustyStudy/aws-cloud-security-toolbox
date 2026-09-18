@@ -103,7 +103,11 @@ Resources:
                   "Sid": "DenyDisallowedFoundationModels",
                   "Effect": "Deny",
                   "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-                  "NotResource": ["arn:*:bedrock:*::foundation-model/${ModelArnPatterns}"]
+                  "NotResource": [
+                    "arn:*:bedrock:*::foundation-model/${ModelArnPatterns}",
+                    "arn:*:bedrock:*:*:inference-profile/*",
+                    "arn:*:bedrock:*:*:application-inference-profile/*"
+                  ]
                 }
               ]
             }

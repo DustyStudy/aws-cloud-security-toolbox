@@ -59,8 +59,10 @@ def _is_exempt(user_name):
     try:
         tags = iam.list_user_tags(UserName=user_name).get("Tags", [])
     except ClientError:
-        logger.exception("Failed to list tags for user %s", user_name)
-        return False
+        # Fail safe: if we can't tell whether the user is exempt, don't
+        # deactivate their keys - they may be a break-glass account.
+        logger.exception("Failed to list tags for user %s - skipping user this run", user_name)
+        return True
     for tag in tags:
         if tag.get("Key") == EXEMPT_TAG_KEY:
             if EXEMPT_TAG_VALUE is None or tag.get("Value") == EXEMPT_TAG_VALUE:

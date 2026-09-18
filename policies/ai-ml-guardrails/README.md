@@ -20,8 +20,13 @@ standalone JSON, or deploy/attach via CloudFormation or Terraform.
 - **Bedrock invocation logging** is your only audit trail of what prompts
   and completions actually went through your models — without it, an
   incident involving a leaked prompt or a jailbroken agent is nearly
-  unreconstructable after the fact. This SCP stops anyone from turning it
-  off, in either direction.
+  unreconstructable after the fact. This SCP denies deleting the logging
+  configuration; it can't stop someone *reconfiguring* it (e.g. pointing it
+  at another bucket or disabling text delivery), since that is the same
+  `PutModelInvocationLoggingConfiguration` call the enforcement Lambda
+  itself needs. Pair it with
+  [`bedrock-logging-enforcement`](../../cloudformation/bedrock-logging-enforcement/)
+  to detect and revert that.
 - **Bedrock Guardrails** (content filtering, PII redaction, topic
   restrictions) are easy to configure and easy to quietly delete later.
   This denies the delete.
@@ -77,6 +82,12 @@ module "ai_ml_guardrails" {
 
 ## Notes
 
+- The allow-list is enforced against `foundation-model` ARNs. Calls made
+  through a cross-region or application inference profile (e.g.
+  `us.anthropic.*`) are also authorized against the underlying model ARN,
+  so inference-profile ARNs are permitted and the model allow-list still
+  applies. Custom and provisioned models are *not* exempted; add their
+  ARNs to the `NotResource` list if you use them.
 - Bedrock foundation models are versioned and updated by AWS regularly -
   review `AllowedBedrockModelPatterns` periodically so a new model your
   teams need isn't silently blocked.

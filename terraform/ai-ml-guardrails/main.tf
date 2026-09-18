@@ -23,10 +23,19 @@ locals {
       Sid    = "DenyDisallowedFoundationModels"
       Effect = "Deny"
       Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-      NotResource = [
-        for pattern in var.allowed_bedrock_model_patterns :
-        "arn:*:bedrock:*::foundation-model/${pattern}"
-      ]
+      # Inference profiles (e.g. us.anthropic.*) are separate resource ARNs
+      # that Bedrock authorizes alongside the underlying foundation-model
+      # ARN, so they're allowed here and the model allow-list still applies.
+      NotResource = concat(
+        [
+          for pattern in var.allowed_bedrock_model_patterns :
+          "arn:*:bedrock:*::foundation-model/${pattern}"
+        ],
+        [
+          "arn:*:bedrock:*:*:inference-profile/*",
+          "arn:*:bedrock:*:*:application-inference-profile/*",
+        ]
+      )
     }]
   })
 

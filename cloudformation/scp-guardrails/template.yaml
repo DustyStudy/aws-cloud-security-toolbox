@@ -210,7 +210,7 @@ Resources:
     Condition: CreateDenyDisableS3PublicAccessBlock
     Properties:
       Name: !Sub "${AWS::StackName}-deny-disable-s3-pab"
-      Description: Denies disabling S3 Block Public Access at the account or bucket level.
+      Description: Denies changing or removing S3 Block Public Access settings at the account or bucket level.
       Type: SERVICE_CONTROL_POLICY
       TargetIds: !Ref TargetIds
       Content: |
@@ -218,60 +218,13 @@ Resources:
           "Version": "2012-10-17",
           "Statement": [
             {
-              "Sid": "DenyDisableAccountBlockPublicAcls",
+              "Sid": "DenyModifyS3BlockPublicAccess",
               "Effect": "Deny",
-              "Action": "s3:PutAccountPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutAccountPublicAccessBlock:BlockPublicAcls": "false" } }
-            },
-            {
-              "Sid": "DenyDisableAccountBlockPublicPolicy",
-              "Effect": "Deny",
-              "Action": "s3:PutAccountPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutAccountPublicAccessBlock:BlockPublicPolicy": "false" } }
-            },
-            {
-              "Sid": "DenyDisableAccountIgnorePublicAcls",
-              "Effect": "Deny",
-              "Action": "s3:PutAccountPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutAccountPublicAccessBlock:IgnorePublicAcls": "false" } }
-            },
-            {
-              "Sid": "DenyDisableAccountRestrictPublicBuckets",
-              "Effect": "Deny",
-              "Action": "s3:PutAccountPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutAccountPublicAccessBlock:RestrictPublicBuckets": "false" } }
-            },
-            {
-              "Sid": "DenyDisableBucketBlockPublicAcls",
-              "Effect": "Deny",
-              "Action": "s3:PutBucketPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutBucketPublicAccessBlock:BlockPublicAcls": "false" } }
-            },
-            {
-              "Sid": "DenyDisableBucketBlockPublicPolicy",
-              "Effect": "Deny",
-              "Action": "s3:PutBucketPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutBucketPublicAccessBlock:BlockPublicPolicy": "false" } }
-            },
-            {
-              "Sid": "DenyDisableBucketIgnorePublicAcls",
-              "Effect": "Deny",
-              "Action": "s3:PutBucketPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutBucketPublicAccessBlock:IgnorePublicAcls": "false" } }
-            },
-            {
-              "Sid": "DenyDisableBucketRestrictPublicBuckets",
-              "Effect": "Deny",
-              "Action": "s3:PutBucketPublicAccessBlock",
-              "Resource": "*",
-              "Condition": { "Bool": { "s3:PutBucketPublicAccessBlock:RestrictPublicBuckets": "false" } }
+              "Action": [
+                "s3:PutAccountPublicAccessBlock",
+                "s3:PutBucketPublicAccessBlock"
+              ],
+              "Resource": "*"
             }
           ]
         }

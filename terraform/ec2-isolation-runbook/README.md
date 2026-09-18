@@ -76,3 +76,8 @@ Or via the console: Systems Manager → Automation → Execute automation.
   attacker isn't tipped off by the SG change first.
 - Doesn't touch IAM (e.g. revoking the instance's role credentials) —
   pair with your incident response process for that.
+- Changing the security groups only affects the instance's **primary
+  network interface**, and security groups are stateful: connections that
+  were already established when the swap happens can stay open until they
+  go idle. For a hard cut-off of an active session, also stop the instance
+  (`StopInstance=true`) or detach/replace any secondary interfaces.

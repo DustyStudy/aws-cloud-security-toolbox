@@ -16,7 +16,12 @@ variable "private_subnet_ids" {
 
 variable "corporate_cidr" {
   type        = string
-  description = "CIDR range allowed to reach the gateway's ALB on 443 (your corporate network / VPN range)."
+  description = "CIDR range allowed to reach the gateway's ALB on 443 (your corporate network / VPN range). Must not be 0.0.0.0/0."
+
+  validation {
+    condition     = can(cidrhost(var.corporate_cidr, 0)) && var.corporate_cidr != "0.0.0.0/0"
+    error_message = "corporate_cidr must be a valid IPv4 CIDR block and must not be 0.0.0.0/0."
+  }
 }
 
 variable "acm_certificate_arn" {
@@ -26,7 +31,7 @@ variable "acm_certificate_arn" {
 
 variable "container_image_tag" {
   type        = string
-  description = "Tag of the gateway image already pushed to this module's ECR repository. The image must exist before the ECS service can start - see this module's README for the two-phase apply."
+  description = "Tag of the gateway image already pushed to this module's ECR repository. The image must exist before the ECS service can start - see this module's README for the two-phase apply. The ECR repository has IMMUTABLE tags, so an existing tag can't be re-pushed: always set an explicit versioned tag (e.g. v1) rather than relying on this default."
   default     = "latest"
 }
 

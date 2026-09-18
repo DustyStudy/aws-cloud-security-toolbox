@@ -18,8 +18,16 @@ which is what makes them a guardrail rather than just another permission.
 | `deny-disable-security-services.json` | Disabling/stopping CloudTrail, Config, GuardDuty, or Security Hub |
 | `require-imdsv2.json` | Launching or modifying EC2 instances without IMDSv2 required |
 | `deny-leave-organization.json` | A member account leaving the Organization |
-| `deny-disable-s3-public-access-block.json` | Disabling S3 Block Public Access at the account or bucket level |
+| `deny-disable-s3-public-access-block.json` | Any change to S3 Block Public Access settings at the account or bucket level (see note below) |
 | `restrict-regions.json` | Actions outside an allow-listed set of regions (global services exempted) |
+
+**S3 Block Public Access note:** S3 exposes no condition keys for the
+individual Block Public Access settings, so this policy can't distinguish
+"turn a setting off" from "turn it on". It denies `PutAccountPublicAccessBlock`
+and `PutBucketPublicAccessBlock` outright (the corresponding `Delete*`
+calls are authorized by those same actions). Configure Block Public Access
+through your baseline automation *before* attaching it, or exempt that
+automation's role.
 
 `restrict-regions.json` has `REPLACE_WITH_ALLOWED_REGION_*` placeholders —
 edit those (or use the CloudFormation/Terraform, which templates the
@@ -85,6 +93,17 @@ Every policy has a matching `enable_*` boolean variable (see
 - `restrict-regions.json` is the one place you should always customize:
   set `AllowedRegions`/`allowed_regions` to your GovCloud region(s), e.g.
   `us-gov-west-1,us-gov-east-1`.
+
+## Limitations
+
+- **SCPs never apply to the Organization's management account**, so none
+  of these policies (including `deny-root-user`) constrain it. Protect the
+  management account's root user separately (MFA, no access keys) and see
+  [`root-activity-alarm`](../../cloudformation/root-activity-alarm/) for
+  detection.
+- `deny-disable-security-services.json` also blocks `cloudtrail:UpdateTrail`
+  and `PutEventSelectors`, so legitimate trail changes need a break-glass
+  path (or an exemption for your automation role) once it's attached.
 
 ## Before enabling in production
 

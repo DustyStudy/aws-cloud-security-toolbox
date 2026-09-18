@@ -2,9 +2,8 @@
 
 Receives Wiz webhook deliveries via an API Gateway HTTP API and bridges
 them into this repo's existing patterns: an SNS notification matching
-every other module here, and — optionally — an invocation of one of this
-repo's own remediation Lambdas when a finding matches a configured
-mapping.
+every other module here, and — optionally — an invocation of a remediation
+Lambda you supply when a finding matches a configured mapping.
 
 ## Read this before you deploy
 
@@ -93,19 +92,21 @@ caveats, and this module uses neither.
 
 Once you know your real Wiz payload's title/rule-name values (from the
 raw-payload excerpt in an SNS message), you can route specific findings
-straight into one of this repo's own remediation Lambdas — for example,
-a Wiz finding about a security group open to the internet could invoke
+into a remediation Lambda of your own. For example, a Wiz finding about
+a security group open to the internet could be routed to a small adapter
+Lambda that extracts the security group ID and calls
 [`auto-remediate-open-ssh-rdp`](../auto-remediate-open-ssh-rdp/)'s Lambda
-directly:
+(pointing the mapping straight at that Lambda does **not** work; see the
+note after this example):
 
 ```hcl
 module "wiz_finding_bridge" {
   source = "github.com/DustyStudy/aws-cloud-security-toolbox//terraform/wiz-finding-bridge"
 
   remediation_lambda_mapping = {
-    "Port 22/3389 open to 0.0.0.0/0" = module.auto_remediate_open_ssh_rdp.event_driven_lambda_arn
+    "Port 22/3389 open to 0.0.0.0/0" = aws_lambda_function.wiz_adapter.arn
   }
-  remediation_lambda_arns = [module.auto_remediate_open_ssh_rdp.event_driven_lambda_arn]
+  remediation_lambda_arns = [aws_lambda_function.wiz_adapter.arn]
 }
 ```
 
@@ -113,9 +114,14 @@ module "wiz_finding_bridge" {
 what actually grants this module's execution role permission to invoke
 them. The mapped Lambda is invoked asynchronously with
 `{"source": "wiz-finding-bridge", "finding": <normalized finding>}` as
-its payload; it needs to be written to accept that shape, or you'll want
-a small adapter in between rather than pointing straight at an existing
-module's Lambda whose input contract wasn't designed for this.
+its payload; it needs to be written to accept that shape. None of this repo's
+existing remediation Lambdas do: `auto-remediate-open-ssh-rdp` reads a
+top-level `security_group_id`, and `sagemaker-notebook-exposure` reads a
+top-level `notebook_instance_name`, so invoked directly with this payload
+they would log "no ... provided" and remediate nothing. Put a small
+adapter Lambda in between that pulls the resource identifier out of
+`finding` (using the field paths you've identified from a real payload)
+and calls the target with the input it expects.
 
 ## Variables
 

@@ -94,7 +94,7 @@ aws-cloud-security-toolbox/
 | [`sagemaker-notebook-exposure`](#sagemaker-notebook-exposure) | Auto-remediation | Locks down SageMaker notebooks with internet or root access enabled |
 | [`claude-apps-gateway`](#claude-apps-gateway) | Reference | Deployment reference for Claude apps gateway on AWS |
 | [`stale-account-detector`](#stale-account-detector) | Detective | Finds accounts with no CloudTrail activity in N days |
-| [`wiz-finding-bridge`](#wiz-finding-bridge) | Detective | Bridges Wiz webhook findings into SNS and this repo's own remediation Lambdas |
+| [`wiz-finding-bridge`](#wiz-finding-bridge) | Detective | Bridges Wiz webhook findings into SNS and (optionally) your own remediation Lambdas |
 
 ### `auto-remediate-open-ssh-rdp`
 
@@ -276,7 +276,8 @@ about the accounts that quietly stopped being used.
 
 Receives Wiz webhook deliveries via an API Gateway HTTP API and bridges
 them into this repo's existing patterns: an SNS notification, and
-optionally an invocation of one of this repo's own remediation Lambdas
+optionally an invocation of a remediation Lambda you supply (an adapter
+is needed; this repo's own remediators don't accept the bridge's payload)
 when a finding matches a configured mapping. **Schema-tolerant by
 design**: Wiz's webhook JSON shape is read via configurable dot-notation
 field paths rather than hardcoded keys, and the raw payload is always
@@ -294,6 +295,9 @@ GitHub Actions on every push/PR:
 - **CloudFormation**: `cfn-lint` + Checkov
 - **Terraform**: `terraform fmt -check`, `terraform validate`, `tflint`,
   Checkov
+- **Python and policies**: Lambda sources compile, `policies/**/*.json`
+  parses, and each Lambda's CloudFormation and Terraform copies are
+  byte-identical
 
 ## Contributing
 

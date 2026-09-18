@@ -151,6 +151,9 @@ Resources:
               Service: cloudtrail.amazonaws.com
             Action: s3:GetBucketAcl
             Resource: !GetAtt TrailBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${TrailName}"
           - Sid: AWSCloudTrailWriteOrgTrail
             Effect: Allow
             Principal:
@@ -160,6 +163,7 @@ Resources:
             Condition:
               StringEquals:
                 s3:x-amz-acl: bucket-owner-full-control
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${TrailName}"
           - Sid: AWSCloudTrailWriteMemberAccountLogs
             Effect: Allow
             Principal:
@@ -169,6 +173,17 @@ Resources:
             Condition:
               StringEquals:
                 s3:x-amz-acl: bucket-owner-full-control
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${TrailName}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt TrailBucket.Arn
+              - !Sub "${TrailBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
 
   TrailEncryptionKey:
     Type: AWS::KMS::Key
@@ -209,6 +224,17 @@ Resources:
             Principal:
               Service: cloudtrail.amazonaws.com
             Action: kms:DescribeKey
+            Resource: "*"
+          - Sid: AllowCloudTrailToPublishToEncryptedTopic
+            # SNS needs the publisher (CloudTrail) to be able to use the
+            # topic's key. The AWS-managed aws/sns key can't grant this, so
+            # the topic is encrypted with this customer-managed key instead.
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
             Resource: "*"
           - Sid: AllowCloudWatchLogsUseOfKey
             Effect: Allow
@@ -273,7 +299,7 @@ Resources:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub "${TrailName}-notifications"
-      KmsMasterKeyId: alias/aws/sns
+      KmsMasterKeyId: !Ref TrailEncryptionKey
 
   TrailTopicPolicy:
     Type: AWS::SNS::TopicPolicy
@@ -289,6 +315,9 @@ Resources:
               Service: cloudtrail.amazonaws.com
             Action: sns:Publish
             Resource: !Ref TrailTopic
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${TrailName}"
 
   OrganizationTrail:
     Type: AWS::CloudTrail::Trail
