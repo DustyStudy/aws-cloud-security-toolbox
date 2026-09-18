@@ -29,6 +29,8 @@ Parameters:
 
   CorporateCidr:
     Type: String
+    AllowedPattern: "^(?!0[.]0[.]0[.]0/0$)([0-9]{1,3}[.]){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$"
+    ConstraintDescription: Must be an IPv4 CIDR block (e.g. 10.0.0.0/8) and must not be 0.0.0.0/0.
     Description: >
       CIDR range allowed to reach the gateway's ALB on 443 (your
       corporate network / VPN range). Never 0.0.0.0/0 - Claude Code
@@ -65,7 +67,10 @@ Parameters:
     Description: >
       Tag of the gateway image already pushed to that repository (see
       README - the image must exist before the ECS service can start,
-      which is why the ECR repository is a separate, earlier stack).
+      which is why the ECR repository is a separate, earlier stack). The
+      repository has IMMUTABLE tags, so an existing tag can never be
+      re-pushed: always set an explicit versioned tag (e.g. v1) rather
+      than relying on this default.
 
   DesiredCount:
     Type: Number

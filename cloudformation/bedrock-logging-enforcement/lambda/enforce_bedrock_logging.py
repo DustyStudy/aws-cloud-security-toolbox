@@ -80,8 +80,9 @@ def _get_current_config():
 def _is_compliant(current, desired):
     if not current:
         return False
-    if current.get("textDataDeliveryEnabled") != desired["textDataDeliveryEnabled"]:
-        return False
+    for flag in ("textDataDeliveryEnabled", "imageDataDeliveryEnabled", "embeddingDataDeliveryEnabled"):
+        if bool(current.get(flag)) != desired[flag]:
+            return False
     if S3_BUCKET_NAME and current.get("s3Config", {}).get("bucketName") != S3_BUCKET_NAME:
         return False
     if CLOUDWATCH_LOG_GROUP and current.get("cloudWatchConfig", {}).get("logGroupName") != CLOUDWATCH_LOG_GROUP:

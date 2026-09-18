@@ -120,7 +120,7 @@ your MDM's managed settings file — see
 | `corporate_cidr` | CIDR allowed to reach the ALB on 443 | — (required) |
 | `acm_certificate_arn` | ACM certificate for the gateway hostname | — (required) |
 | `oidc_client_secret_value` | Your IdP app's OAuth client secret (sensitive) | — (required) |
-| `container_image_tag` | Image tag to deploy | `latest` |
+| `container_image_tag` | Image tag to deploy. The repository is `IMMUTABLE`, so always pass an explicit versioned tag (e.g. `v1`) | `latest` |
 | `desired_count` | Number of gateway tasks | `1` |
 | `db_instance_class` | RDS instance class | `db.t4g.micro` |
 | `db_allocated_storage_gb` | RDS storage in GB | `20` |

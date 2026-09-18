@@ -20,11 +20,37 @@ Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
 
 Resources:
+  # EventBridge publishes to this topic as a service principal, which can't
+  # use the AWS-managed aws/sns key (its key policy can't be edited to allow
+  # it) - without a customer-managed key, alerts would silently never arrive.
+  RootActivityTopicKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "Encrypts the ${AWS::StackName} root-activity SNS topic (customer-managed so EventBridge can publish to it)."
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableIAMUserPermissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: AllowEventBridgeToUseKey
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey*
+            Resource: "*"
+
   RootActivityTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub "${AWS::StackName}-root-activity-alerts"
-      KmsMasterKeyId: alias/aws/sns
+      KmsMasterKeyId: !Ref RootActivityTopicKey
 
   RootActivityTopicSubscription:
     Type: AWS::SNS::Subscription

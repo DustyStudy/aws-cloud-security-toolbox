@@ -1,9 +1,38 @@
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
 
+# Budgets and Cost Anomaly Detection publish as service principals, which
+# can't use the AWS-managed aws/sns key (its key policy can't be edited to
+# allow them) - without a customer-managed key, alerts would silently never
+# arrive.
+resource "aws_kms_key" "topic" {
+  description         = "Encrypts the ${var.name_prefix} Bedrock cost-alerts SNS topic (customer-managed so Budgets and Cost Anomaly Detection can publish to it)."
+  enable_key_rotation = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableIAMUserPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowBudgetsAndCostAnomalyDetectionToUseKey"
+        Effect    = "Allow"
+        Principal = { Service = ["budgets.amazonaws.com", "costalerts.amazonaws.com"] }
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource  = "*"
+      },
+    ]
+  })
+}
+
 resource "aws_sns_topic" "cost_alerts" {
   name              = "${var.name_prefix}-bedrock-cost-alerts"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.topic.arn
 }
 
 resource "aws_sns_topic_subscription" "email" {

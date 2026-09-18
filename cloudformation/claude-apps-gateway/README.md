@@ -149,7 +149,7 @@ managed settings file — see
 | `AcmCertificateArn` | Yes | ACM certificate for the gateway hostname |
 | `EcrRepositoryUri` | Yes | Output of the `ecr/` stack, after pushing an image |
 | `EcrKeyArn` | Yes | `EcrKeyArn` output of the `ecr/` stack - grants the execution role decrypt access to pull the image |
-| `ContainerImageTag` | No | Image tag to deploy (default `latest`) |
+| `ContainerImageTag` | No | Image tag to deploy. Default `latest`, but the repository is `IMMUTABLE`, so always pass an explicit versioned tag (e.g. `v1`) |
 | `OidcClientSecretValue` | Yes | Your IdP app's OAuth client secret (`NoEcho`) |
 | `DesiredCount` | No | Number of gateway tasks (default `1`) |
 | `DbInstanceClass` | No | RDS instance class (default `db.t4g.micro`) |

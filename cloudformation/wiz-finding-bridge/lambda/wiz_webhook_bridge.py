@@ -2,8 +2,9 @@
 Receives Wiz webhook deliveries (Settings -> Integrations -> Webhook, fired
 by a Policies -> Automation Rule) via API Gateway, and bridges them into
 this repo's existing patterns: an SNS notification matching every other
-module here, and - optionally - an invocation of one of this repo's own
-remediation Lambdas when a finding matches a configured mapping.
+module here, and - optionally - an invocation of a remediation Lambda you
+supply (typically a small adapter; this repo's own remediators expect a
+different input shape) when a finding matches a configured mapping.
 
 This module is deliberately schema-tolerant rather than schema-assuming.
 Wiz's outbound webhook JSON shape isn't something this repo can verify
@@ -59,7 +60,9 @@ Env vars:
 import os
 import json
 import hmac
+import base64
 import logging
+import re
 
 import boto3
 from botocore.exceptions import ClientError
@@ -87,6 +90,12 @@ SEVERITY_RANK = {
 }
 
 MAX_RAW_PAYLOAD_CHARS = 2000
+
+# SNS only accepts printable ASCII in a Subject (no newlines, control or
+# non-ASCII characters). The title comes from an external payload, so
+# collapse anything else - otherwise one odd title would make SNS reject
+# the publish and the notification would be silently dropped.
+_NON_SUBJECT_CHARS = re.compile(r"[^\x20-\x7e]+")
 
 # Cached across warm Lambda invocations to avoid a Secrets Manager call
 # on every webhook delivery. Cleared automatically on cold start.
@@ -156,11 +165,22 @@ def lambda_handler(event, context):
     provided_secret = path_params.get("secretToken", "")
 
     expected_secret = _get_expected_secret()
-    if not expected_secret or not hmac.compare_digest(provided_secret, expected_secret):
+    # Compare as bytes: hmac.compare_digest raises TypeError on non-ASCII
+    # str input, which an attacker-controlled path segment could trigger
+    # (turning a clean 401 into an unhandled 500).
+    if not expected_secret or not hmac.compare_digest(
+        provided_secret.encode("utf-8"), expected_secret.encode("utf-8")
+    ):
         logger.warning("Rejected webhook delivery with an invalid or missing secret token")
         return _http_response(401, {"message": "unauthorized"})
 
     raw_body = event.get("body", "") or ""
+    if event.get("isBase64Encoded"):
+        try:
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            logger.warning("Webhook body was flagged base64-encoded but could not be decoded")
+            return _http_response(200, {"message": "received, but body could not be decoded - not processed"})
     try:
         payload = json.loads(raw_body)
         if not isinstance(payload, dict):
@@ -215,7 +235,7 @@ def lambda_handler(event, context):
         try:
             sns.publish(
                 TopicArn=SNS_TOPIC_ARN,
-                Subject=f"Wiz finding: {title}"[:100],
+                Subject=_NON_SUBJECT_CHARS.sub(" ", f"Wiz finding: {title}").strip()[:100],
                 Message="\n".join(message_lines),
             )
         except ClientError:
