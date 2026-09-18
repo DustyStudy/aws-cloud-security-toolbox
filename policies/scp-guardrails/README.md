@@ -104,6 +104,11 @@ Every policy has a matching `enable_*` boolean variable (see
 - `deny-disable-security-services.json` also blocks `cloudtrail:UpdateTrail`
   and `PutEventSelectors`, so legitimate trail changes need a break-glass
   path (or an exemption for your automation role) once it's attached.
+- It also blocks `guardduty:UpdateDetector`, the call that can set a
+  detector's `Enable` flag to `false`. The same call is used for legitimate
+  changes (finding publishing frequency, feature toggles), and CloudFormation
+  issues it when a `AWS::GuardDuty::Detector` is updated - so change those
+  settings from an exempted role, or before attaching the policy.
 
 ## Before enabling in production
 

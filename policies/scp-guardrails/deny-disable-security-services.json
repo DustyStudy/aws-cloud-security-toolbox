@@ -31,7 +31,8 @@
         "guardduty:DeleteDetector",
         "guardduty:DisassociateFromMasterAccount",
         "guardduty:DisassociateMembers",
-        "guardduty:DisableOrganizationAdminAccount"
+        "guardduty:DisableOrganizationAdminAccount",
+        "guardduty:UpdateDetector"
       ],
       "Resource": "*"
     },

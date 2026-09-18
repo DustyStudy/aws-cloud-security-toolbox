@@ -44,6 +44,7 @@ locals {
           "guardduty:DisassociateFromMasterAccount",
           "guardduty:DisassociateMembers",
           "guardduty:DisableOrganizationAdminAccount",
+          "guardduty:UpdateDetector",
         ]
         Resource = "*"
       },
