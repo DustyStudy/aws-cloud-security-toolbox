@@ -52,6 +52,16 @@ jobs:
           framework: cloudformation
           quiet: true
 
+      - name: Run Checkov on the Terraform member-baseline StackSet template
+        # Lives under terraform/ (so the directory scan above and the
+        # Terraform job's framework filter both skip it), but it's a
+        # CloudFormation template that gets deployed into every member account.
+        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # v12.3123.0
+        with:
+          file: terraform/security-baseline-new-accounts/member-baseline/baseline-template.yaml
+          framework: cloudformation
+          quiet: true
+
   python-and-policies:
     name: Python, policy JSON, and Lambda copy consistency
     runs-on: ubuntu-latest

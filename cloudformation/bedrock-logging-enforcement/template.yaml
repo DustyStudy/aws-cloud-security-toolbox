@@ -207,6 +207,8 @@ Resources:
             Condition:
               StringEquals:
                 aws:SourceAccount: !Ref "AWS::AccountId"
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:*"
       Policies:
         - PolicyName: BedrockToCloudWatchLogsPolicy
           PolicyDocument:
@@ -247,6 +249,16 @@ Resources:
                 Resource: "*"
                 # Bedrock's account-level logging configuration APIs are
                 # not resource-scopable - "*" is required.
+              - Effect: Allow
+                # The logging configuration hands Bedrock this role for
+                # CloudWatch delivery. Scoped to exactly that role and only
+                # to Bedrock.
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt BedrockToCloudWatchRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: bedrock.amazonaws.com
               - Effect: Allow
                 Action:
                   - sns:Publish

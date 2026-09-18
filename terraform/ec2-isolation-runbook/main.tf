@@ -75,8 +75,19 @@ resource "aws_iam_role_policy" "automation" {
         ]
       },
       {
+        # Swapping security groups is authorized against the instance and
+        # the security group being attached (AWS lists both as resources
+        # of ModifyInstanceAttribute), so scope both.
+        Effect = "Allow"
+        Action = ["ec2:ModifyInstanceAttribute"]
+        Resource = [
+          "arn:${data.aws_partition.current.partition}:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:${data.aws_partition.current.partition}:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+        ]
+      },
+      {
         Effect   = "Allow"
-        Action   = ["ec2:ModifyInstanceAttribute", "ec2:StopInstances"]
+        Action   = ["ec2:StopInstances"]
         Resource = "arn:${data.aws_partition.current.partition}:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:instance/*"
       },
       {

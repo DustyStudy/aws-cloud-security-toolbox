@@ -297,6 +297,9 @@ Resources:
                   - bedrock:InvokeModelWithResponseStream
                 Resource:
                   - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.*"
+                  # GovCloud's cross-region inference profiles use a
+                  # us-gov. prefix instead; this never matches elsewhere.
+                  - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us-gov.anthropic.*"
                   - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.*"
                 # Both ARN families are required: the built-in model
                 # catalog resolves every Claude model to a cross-region

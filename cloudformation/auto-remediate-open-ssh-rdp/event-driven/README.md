@@ -5,20 +5,23 @@ to `0.0.0.0/0` / `::/0`, within seconds of the rule being created.
 
 ## How it works
 
-1. Someone (or something) calls `AuthorizeSecurityGroupIngress` and opens
+1. Someone (or something) calls `AuthorizeSecurityGroupIngress` (a new
+   rule) or `ModifySecurityGroupRules` (an existing rule edited) and opens
    22 or 3389 to the internet.
 2. That management API call is automatically delivered to EventBridge's
    default event bus by CloudTrail — **no dedicated trail needs to be
    created** for this to work; management events are available on the
    default bus in every account.
-3. An EventBridge rule matches on `eventName: AuthorizeSecurityGroupIngress`
-   and invokes a Lambda function.
-4. The Lambda inspects exactly the rule(s) that were just added, and if
-   they match the risky pattern, revokes them and publishes an SNS
+3. An EventBridge rule matches on those two `eventName`s and invokes a
+   Lambda function.
+4. For a new rule, the Lambda inspects exactly the rule(s) that were just
+   added; for a modification (whose event only carries rule IDs, not the
+   resulting CIDR) it re-checks the whole group. Either way it revokes only
+   the rule entries that open 22/3389 to the internet and publishes an SNS
    notification.
 
-Because it only acts on the rule just created, it won't touch other,
-legitimate ingress rules on the same security group.
+It never touches other, legitimate ingress rules on the same security
+group.
 
 Also included for defense-in-depth / hygiene: a customer-managed KMS key
 encrypting the Lambda's log group and environment variables, a dead-letter

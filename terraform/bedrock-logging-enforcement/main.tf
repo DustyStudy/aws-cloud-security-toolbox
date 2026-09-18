@@ -181,6 +181,7 @@ resource "aws_iam_role" "bedrock_to_cloudwatch" {
       Action    = "sts:AssumeRole"
       Condition = {
         StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+        ArnLike      = { "aws:SourceArn" = "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*" }
       }
     }]
   })
@@ -238,6 +239,16 @@ resource "aws_iam_role_policy" "lambda_exec" {
           "bedrock:PutModelInvocationLoggingConfiguration",
         ]
         Resource = "*"
+      },
+      {
+        # The logging configuration hands Bedrock this role for CloudWatch
+        # delivery. Scoped to exactly that role and only to Bedrock.
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = aws_iam_role.bedrock_to_cloudwatch.arn
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "bedrock.amazonaws.com" }
+        }
       },
       {
         Effect   = "Allow"

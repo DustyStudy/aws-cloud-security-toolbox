@@ -93,8 +93,16 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
                   - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:snapshot/*"
               - Effect: Allow
+                # Swapping security groups is authorized against the instance
+                # and the security group being attached (AWS lists both as
+                # resources of ModifyInstanceAttribute), so scope both.
                 Action:
                   - ec2:ModifyInstanceAttribute
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/*"
+              - Effect: Allow
+                Action:
                   - ec2:StopInstances
                 Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
               - Effect: Allow

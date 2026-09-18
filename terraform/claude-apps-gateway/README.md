@@ -124,7 +124,7 @@ your MDM's managed settings file — see
 | `desired_count` | Number of gateway tasks | `1` |
 | `db_instance_class` | RDS instance class | `db.t4g.micro` |
 | `db_allocated_storage_gb` | RDS storage in GB | `20` |
-| `enable_deletion_protection` | RDS + ALB deletion protection + final RDS snapshot on destroy | `true` |
+| `enable_deletion_protection` | RDS + ALB deletion protection (a final RDS snapshot is always taken on destroy) | `true` |
 | `enable_multi_az` | Enable RDS Multi-AZ - roughly doubles RDS cost | `false` |
 | `create_bedrock_vpc_endpoint` | Create the `bedrock-runtime` interface endpoint | `true` |
 
