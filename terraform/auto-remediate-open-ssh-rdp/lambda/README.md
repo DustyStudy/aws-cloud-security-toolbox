@@ -4,8 +4,8 @@ Shared Lambda source used by both remediation paths in
 `auto-remediate-open-ssh-rdp/`:
 
 - **event-driven**: invoked directly by EventBridge with a CloudTrail
-  `AuthorizeSecurityGroupIngress` event. Revokes only the rule(s) just
-  added.
+  `AuthorizeSecurityGroupIngress` event (revokes only the rule(s) just
+  added) or `ModifySecurityGroupRules` event (re-checks the whole group).
 - **config-rule**: invoked by an SSM Automation document with
   `{"security_group_id": "sg-xxxxxxxx"}`. Describes the group and revokes
   any matching rule found.

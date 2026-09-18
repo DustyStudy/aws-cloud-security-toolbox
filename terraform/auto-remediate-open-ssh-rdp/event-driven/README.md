@@ -5,14 +5,18 @@ to `0.0.0.0/0` / `::/0`, within seconds of the rule being created.
 
 ## How it works
 
-1. Someone calls `AuthorizeSecurityGroupIngress` and opens 22 or 3389 to the
-   internet.
+1. Someone calls `AuthorizeSecurityGroupIngress` (a new rule) or
+   `ModifySecurityGroupRules` (an existing rule edited) and opens 22 or 3389
+   to the internet.
 2. CloudTrail delivers that management event to EventBridge's default
    event bus automatically — no dedicated trail resource required.
-3. An `aws_cloudwatch_event_rule` matches on
-   `eventName: AuthorizeSecurityGroupIngress` and invokes a Lambda.
-4. The Lambda inspects exactly the rule(s) just added and revokes any that
-   match the risky pattern, then publishes an SNS notification.
+3. An `aws_cloudwatch_event_rule` matches on those two `eventName`s and
+   invokes a Lambda.
+4. For a new rule the Lambda inspects exactly the rule(s) just added; for a
+   modification (whose event only carries rule IDs, not the resulting CIDR)
+   it re-checks the whole group. Either way it revokes only the rule
+   entries that open 22/3389 to the internet, then publishes an SNS
+   notification.
 
 Pair this with the sibling `../config-rule/` module to also catch
 pre-existing open rules and drift on a schedule.

@@ -15,6 +15,14 @@ Resources:
 
   ConfigBucket:
     Type: AWS::S3::Bucket
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_18
+            comment: >-
+              Server access logging needs a destination bucket in every
+              member account and region; deliberately left out of this
+              per-account baseline.
     Properties:
       BucketName: !Sub "aws-config-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
@@ -26,6 +34,16 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 365
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
 
   ConfigBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -53,6 +71,16 @@ Resources:
               StringEquals:
                 s3:x-amz-acl: bucket-owner-full-control
                 aws:SourceAccount: !Ref "AWS::AccountId"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt ConfigBucket.Arn
+              - !Sub "${ConfigBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
 
   ConfigRole:
     Type: AWS::IAM::Role

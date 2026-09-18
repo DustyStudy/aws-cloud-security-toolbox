@@ -55,7 +55,7 @@ variable "db_allocated_storage_gb" {
 
 variable "enable_deletion_protection" {
   type        = bool
-  description = "RDS and ALB deletion protection. Set to false only for throwaway/test deployments - when true, a final RDS snapshot is taken on destroy instead of skipped."
+  description = "RDS and ALB deletion protection. Set to false only when you intend to destroy the deployment (or for throwaway/test ones). A final RDS snapshot is always taken on destroy regardless of this setting."
   default     = true
 }
 

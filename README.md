@@ -103,8 +103,8 @@ or **RDP (3389)** to the entire internet (`0.0.0.0/0` / `::/0`). Ships as
 two complementary paths — deploy one or both:
 
 - **`event-driven/`** — EventBridge rule matching CloudTrail's
-  `AuthorizeSecurityGroupIngress` event, revokes the offending rule within
-  seconds of it being created.
+  `AuthorizeSecurityGroupIngress` and `ModifySecurityGroupRules` events,
+  revokes the offending rule within seconds of it being created or edited.
 - **`config-rule/`** — AWS Config managed rule (`RESTRICTED_INCOMING_TRAFFIC`)
   + SSM Automation remediation, re-evaluates all security groups on a
   schedule and catches rules that existed before deployment or slipped

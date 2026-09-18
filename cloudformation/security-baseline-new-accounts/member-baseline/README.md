@@ -79,3 +79,8 @@ For GovCloud:
   `RetainStacksOnAccountRemoval` is left `false` and the account simply
   moves elsewhere in the org — StackSets only manages what's currently in
   scope.
+- **One AWS Config recorder and delivery channel per region per account.**
+  If a targeted account already has Config enabled (for example accounts
+  enrolled through AWS Control Tower, or set up by hand), creating the
+  baseline's recorder fails in that account and region. Exclude those OUs,
+  or remove the existing recorder first.

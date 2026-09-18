@@ -198,6 +198,7 @@ Resources:
         detail:
           eventName:
             - AuthorizeSecurityGroupIngress
+            - ModifySecurityGroupRules
       State: ENABLED
       Targets:
         - Arn: !GetAtt RemediationFunction.Arn

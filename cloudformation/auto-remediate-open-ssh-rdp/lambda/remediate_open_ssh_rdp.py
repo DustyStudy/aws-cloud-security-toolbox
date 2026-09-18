@@ -7,7 +7,10 @@ the event-driven (EventBridge + CloudTrail) and AWS Config + SSM
 Automation remediation paths:
 
 1. EventBridge rule matching CloudTrail's AuthorizeSecurityGroupIngress
-   management event. Revokes only the specific rule(s) just added.
+   management event. Revokes only the specific rule(s) just added. A
+   ModifySecurityGroupRules event (an existing rule edited to be open) is
+   also handled, but its request is rule-ID based rather than describing the
+   resulting CIDR, so the whole group is re-scanned instead.
 2. Direct invocation with {"security_group_id": "sg-xxxxxxxx"} (used by
    the SSM Automation document triggered from an AWS Config remediation).
    Describes the group and revokes any matching bad rules found on it
@@ -136,12 +139,30 @@ def _extract_ip_permissions(container):
     return normalized
 
 
+def _revoke_from_group(group_id, source):
+    """Describe a security group and revoke any SSH/RDP-to-the-internet
+    rules currently on it. Returns a small result dict."""
+    resp = ec2.describe_security_groups(GroupIds=[group_id])
+    groups = resp.get("SecurityGroups", [])
+    if not groups:
+        logger.warning("Security group %s not found", group_id)
+        return {"remediated": False, "reason": "security group not found"}
+
+    ip_permissions = groups[0].get("IpPermissions", [])
+    revoked = _revoke_from_permissions(group_id, ip_permissions, source=source)
+    return {"remediated": bool(revoked), "revoked_rules": revoked}
+
+
 def _handle_cloudtrail_event(event):
     detail = event.get("detail", {})
     request_params = detail.get("requestParameters", {}) or {}
     group_id = request_params.get("groupId")
     if not group_id:
         logger.warning("No groupId found in CloudTrail event detail, skipping")
+        return
+
+    if detail.get("eventName") == "ModifySecurityGroupRules":
+        _revoke_from_group(group_id, source="cloudtrail-eventbridge-modify")
         return
 
     response_elements = detail.get("responseElements", {}) or {}
@@ -160,22 +181,15 @@ def _handle_direct_invocation(event):
         logger.warning("No security_group_id provided in direct invocation event")
         return {"remediated": False, "reason": "no security group id provided"}
 
-    resp = ec2.describe_security_groups(GroupIds=[group_id])
-    groups = resp.get("SecurityGroups", [])
-    if not groups:
-        logger.warning("Security group %s not found", group_id)
-        return {"remediated": False, "reason": "security group not found"}
-
-    ip_permissions = groups[0].get("IpPermissions", [])
-    revoked = _revoke_from_permissions(group_id, ip_permissions, source="config-ssm-remediation")
-    return {"remediated": bool(revoked), "revoked_rules": revoked}
+    return _revoke_from_group(group_id, source="config-ssm-remediation")
 
 
 def lambda_handler(event, context):
     logger.info("Event: %s", json.dumps(event, default=str))
 
+    handled_events = ("AuthorizeSecurityGroupIngress", "ModifySecurityGroupRules")
     is_cloudtrail_event = event.get("detail-type") == "AWS API Call via CloudTrail" or (
-        "detail" in event and event.get("detail", {}).get("eventName") == "AuthorizeSecurityGroupIngress"
+        "detail" in event and event.get("detail", {}).get("eventName") in handled_events
     )
 
     if is_cloudtrail_event:

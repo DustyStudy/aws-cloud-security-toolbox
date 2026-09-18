@@ -231,6 +231,9 @@ resource "aws_iam_role_policy" "bedrock_invoke" {
       Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
       Resource = [
         "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:inference-profile/us.anthropic.*",
+        # GovCloud's cross-region inference profiles use a us-gov. prefix
+        # instead; this never matches in other partitions.
+        "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:inference-profile/us-gov.anthropic.*",
         "arn:${data.aws_partition.current.partition}:bedrock:*::foundation-model/anthropic.*",
       ]
     }]
@@ -415,13 +418,17 @@ resource "aws_db_instance" "gateway" {
   parameter_group_name   = aws_db_parameter_group.gateway.name
   vpc_security_group_ids = [aws_security_group.db.id]
 
-  storage_encrypted         = true
-  publicly_accessible       = false
-  backup_retention_period   = 7
-  copy_tags_to_snapshot     = true
-  deletion_protection       = var.enable_deletion_protection
-  skip_final_snapshot       = !var.enable_deletion_protection
-  final_snapshot_identifier = var.enable_deletion_protection ? "${var.name_prefix}-db-final" : null
+  storage_encrypted       = true
+  publicly_accessible     = false
+  backup_retention_period = 7
+  copy_tags_to_snapshot   = true
+  deletion_protection     = var.enable_deletion_protection
+  # Always snapshot on destroy (matches the CloudFormation flavor's
+  # DeletionPolicy: Snapshot). Deletion protection has to be turned off
+  # before a destroy is possible, so tying the snapshot to it meant the
+  # snapshot was skipped in exactly the case it was meant to protect.
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${var.name_prefix}-db-final"
 
   auto_minor_version_upgrade          = true
   multi_az                            = var.enable_multi_az

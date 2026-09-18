@@ -183,13 +183,13 @@ resource "aws_cloudwatch_log_group" "remediate" {
 
 resource "aws_cloudwatch_event_rule" "authorize_sg_ingress" {
   name        = "${var.name_prefix}-authorize-sg-ingress"
-  description = "Matches AuthorizeSecurityGroupIngress API calls captured by CloudTrail."
+  description = "Matches AuthorizeSecurityGroupIngress and ModifySecurityGroupRules API calls captured by CloudTrail."
 
   event_pattern = jsonencode({
     source      = ["aws.ec2"]
     detail-type = ["AWS API Call via CloudTrail"]
     detail = {
-      eventName = ["AuthorizeSecurityGroupIngress"]
+      eventName = ["AuthorizeSecurityGroupIngress", "ModifySecurityGroupRules"]
     }
   })
 }

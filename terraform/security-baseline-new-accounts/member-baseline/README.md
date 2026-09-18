@@ -85,3 +85,8 @@ For GovCloud:
   for departed accounts.
 - One `aws_cloudformation_stack_set_instance` is created per region in
   `regions` (via `for_each`), each targeting the same OU list.
+- **One AWS Config recorder and delivery channel per region per account.**
+  If a targeted account already has Config enabled (for example accounts
+  enrolled through AWS Control Tower, or set up by hand), creating the
+  baseline's recorder fails in that account and region. Exclude those OUs,
+  or remove the existing recorder first.
