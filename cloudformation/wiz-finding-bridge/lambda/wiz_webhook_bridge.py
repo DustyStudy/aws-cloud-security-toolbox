@@ -63,6 +63,7 @@ import hmac
 import base64
 import logging
 import re
+import time
 
 import boto3
 from botocore.exceptions import ClientError
@@ -98,20 +99,28 @@ MAX_RAW_PAYLOAD_CHARS = 2000
 _NON_SUBJECT_CHARS = re.compile(r"[^\x20-\x7e]+")
 
 # Cached across warm Lambda invocations to avoid a Secrets Manager call
-# on every webhook delivery. Cleared automatically on cold start.
+# on every webhook delivery. The cache expires after a short TTL so a
+# rotated secret (e.g. after a suspected URL leak) stops being accepted
+# within minutes, not whenever the execution environment happens to be
+# recycled.
+SECRET_CACHE_TTL_SECONDS = int(os.environ.get("SECRET_CACHE_TTL_SECONDS", "300"))
 _cached_secret = None
+_cached_secret_at = 0.0
 
 
 def _get_expected_secret():
-    global _cached_secret
-    if _cached_secret is not None:
+    global _cached_secret, _cached_secret_at
+    if _cached_secret is not None and time.monotonic() - _cached_secret_at < SECRET_CACHE_TTL_SECONDS:
         return _cached_secret
     try:
         response = secretsmanager.get_secret_value(SecretId=WEBHOOK_SECRET_ARN)
         _cached_secret = response["SecretString"]
+        _cached_secret_at = time.monotonic()
         return _cached_secret
     except ClientError:
         logger.exception("Failed to retrieve webhook secret from Secrets Manager")
+        # Don't keep honoring a stale secret indefinitely if the refresh fails.
+        _cached_secret = None
         return None
 
 

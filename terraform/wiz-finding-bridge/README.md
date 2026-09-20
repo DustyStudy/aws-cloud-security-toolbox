@@ -84,6 +84,11 @@ Created* (or *Detection Created*, if you have Wiz Defend), an optional
 severity "If" filter, and set the action to send to the webhook
 integration you just created.
 
+**Rotating the token:** if the URL may have leaked, replace the secret
+value in Secrets Manager and re-paste the new URL into Wiz. The Lambda
+caches the secret for `SECRET_CACHE_TTL_SECONDS` (default 300), so the old
+token stops being accepted within about five minutes without redeploying.
+
 Works the same in GovCloud — HTTP APIs are fully supported there; only
 edge-optimized endpoints and private VPC-link integrations have GovCloud
 caveats, and this module uses neither.
