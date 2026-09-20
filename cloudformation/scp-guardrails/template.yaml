@@ -135,7 +135,10 @@ Resources:
                 "guardduty:DisassociateFromMasterAccount",
                 "guardduty:DisassociateMembers",
                 "guardduty:DisableOrganizationAdminAccount",
-                "guardduty:UpdateDetector"
+                "guardduty:UpdateDetector",
+                "guardduty:DisassociateFromAdministratorAccount",
+                "guardduty:DeleteMembers",
+                "guardduty:StopMonitoringMembers"
               ],
               "Resource": "*"
             },
@@ -145,7 +148,13 @@ Resources:
               "Action": [
                 "securityhub:DisableSecurityHub",
                 "securityhub:DisableImportFindingsForProduct",
-                "securityhub:DeleteInsight"
+                "securityhub:DeleteInsight",
+                "securityhub:BatchDisableStandards",
+                "securityhub:DisassociateFromAdministratorAccount",
+                "securityhub:DisassociateFromMasterAccount",
+                "securityhub:DisassociateMembers",
+                "securityhub:DeleteMembers",
+                "securityhub:DisableOrganizationAdminAccount"
               ],
               "Resource": "*"
             }

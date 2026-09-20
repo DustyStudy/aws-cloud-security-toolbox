@@ -45,6 +45,9 @@ locals {
           "guardduty:DisassociateMembers",
           "guardduty:DisableOrganizationAdminAccount",
           "guardduty:UpdateDetector",
+          "guardduty:DisassociateFromAdministratorAccount",
+          "guardduty:DeleteMembers",
+          "guardduty:StopMonitoringMembers",
         ]
         Resource = "*"
       },
@@ -55,6 +58,12 @@ locals {
           "securityhub:DisableSecurityHub",
           "securityhub:DisableImportFindingsForProduct",
           "securityhub:DeleteInsight",
+          "securityhub:BatchDisableStandards",
+          "securityhub:DisassociateFromAdministratorAccount",
+          "securityhub:DisassociateFromMasterAccount",
+          "securityhub:DisassociateMembers",
+          "securityhub:DeleteMembers",
+          "securityhub:DisableOrganizationAdminAccount",
         ]
         Resource = "*"
       },

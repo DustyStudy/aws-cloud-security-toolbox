@@ -109,6 +109,13 @@ Every policy has a matching `enable_*` boolean variable (see
   changes (finding publishing frequency, feature toggles), and CloudFormation
   issues it when a `AWS::GuardDuty::Detector` is updated - so change those
   settings from an exempted role, or before attaching the policy.
+- It also blocks the current-name GuardDuty and Security Hub calls that
+  detach an account from its delegated administrator
+  (`DisassociateFromAdministratorAccount`; the older
+  `...FromMasterAccount` names are separate IAM actions and are listed
+  too), plus `guardduty:DeleteMembers` / `StopMonitoringMembers` and
+  `securityhub:BatchDisableStandards`. Managing membership or standards
+  therefore has to run from an exempted role in the administrator account.
 
 ## Before enabling in production
 
