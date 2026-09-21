@@ -37,6 +37,10 @@ COPY gateway.yaml /etc/claude/gateway.yaml
 COPY rds-global-bundle.pem /etc/claude/rds-global-bundle.pem
 ENV NODE_EXTRA_CA_CERTS=/etc/claude/rds-global-bundle.pem
 
+# Run unprivileged; 8080 is above 1024 so no capabilities are needed.
+RUN useradd --system --no-create-home --uid 10001 --shell /usr/sbin/nologin gateway
+USER 10001
+
 EXPOSE 8080
 
 ENTRYPOINT ["claude", "gateway", "--config", "/etc/claude/gateway.yaml"]
