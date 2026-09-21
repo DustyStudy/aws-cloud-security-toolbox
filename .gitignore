@@ -23,3 +23,9 @@ __pycache__/
 .idea/
 *.swp
 *.swo
+*.tfvars
+!*.tfvars.example
+.env
+.env.*
+*.pem
+*.key
