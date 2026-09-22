@@ -16,6 +16,16 @@ which focus specifically on FedRAMP Moderate/High/20x control mappings.
 Templates here aren't tied to a specific compliance framework — they're
 just useful guardrails.
 
+Each auto-remediation template here is independent and standalone by
+design — deploy the one you need with no other dependencies. For a
+governed pipeline that routes *every* Security Hub finding through
+policy-driven mode selection, blast-radius guardrails, human approval for
+disruptive actions, and an audit trail exported as compliance evidence
+(and that can dispatch to playbooks here, like
+[`auto-remediate-open-ssh-rdp`](#auto-remediate-open-ssh-rdp) and
+[`ec2-isolation-runbook`](#ec2-isolation-runbook), instead of duplicating
+them), see [`aws-remediation-orchestrator`](https://github.com/DustyStudy/aws-remediation-orchestrator).
+
 ## Structure
 
 Each tool/template lives in its own directory, mirrored under both
