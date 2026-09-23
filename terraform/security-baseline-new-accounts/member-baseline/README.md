@@ -23,7 +23,14 @@ there if you want to see or modify exactly what gets deployed per account.
    aws organizations enable-aws-service-access \
      --service-principal member.org.stacksets.cloudformation.amazonaws.com
    ```
-2. Apply from the **Organizations management account**, or from an
+2. CloudFormation's own Organizations access activated in the account you
+   apply from. This is separate from step 1 and easy to miss - without it,
+   `CreateStackSet` fails with `You must enable organizations access to
+   operate a service managed stack set`:
+   ```bash
+   aws cloudformation activate-organizations-access
+   ```
+3. Apply from the **Organizations management account**, or from an
    account registered as a delegated administrator for CloudFormation
    StackSets (set `call_as = "DELEGATED_ADMIN"` in that case).
 
@@ -90,3 +97,10 @@ For GovCloud:
   enrolled through AWS Control Tower, or set up by hand), creating the
   baseline's recorder fails in that account and region. Exclude those OUs,
   or remove the existing recorder first.
+
+## Proof
+
+Run for real against a real AWS Organization - deployed via this Terraform
+module through the StackSet mechanism it's actually designed for (not just
+the standalone CFN template), then verified and torn down. See
+[`docs/PROOF.md`](../../../docs/PROOF.md).
