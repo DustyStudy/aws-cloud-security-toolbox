@@ -299,6 +299,14 @@ destination URL, no custom headers). See the module README before
 relying on this in production — it needs a short tuning pass against a
 real Wiz payload first.
 
+## Proof
+
+`security-baseline-new-accounts` (the `member-baseline` StackSet) has been
+run for real against a real AWS Organization, verified against AWS's own
+records, and torn down cleanly. See [`docs/PROOF.md`](docs/PROOF.md). The
+rest of the toolbox has not yet been tested this way — treat that
+distinction as real, not a formality.
+
 ## CI
 
 GitHub Actions on every push/PR:

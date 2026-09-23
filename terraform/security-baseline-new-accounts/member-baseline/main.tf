@@ -4,6 +4,12 @@
 # CloudFormation StackSets enabled for the Organization:
 #   aws organizations enable-aws-service-access \
 #     --service-principal member.org.stacksets.cloudformation.amazonaws.com
+#
+# That alone is not enough - CloudFormation also needs its own Organizations
+# access activated in the calling account, or CreateStackSet fails with
+# "You must enable organizations access to operate a service managed stack
+# set" (see docs/PROOF.md, section 4):
+#   aws cloudformation activate-organizations-access
 
 resource "aws_cloudformation_stack_set" "member_baseline" {
   name             = "${var.name_prefix}-member-baseline"
@@ -31,9 +37,9 @@ resource "aws_cloudformation_stack_set" "member_baseline" {
 resource "aws_cloudformation_stack_set_instance" "member_baseline" {
   for_each = toset(var.regions)
 
-  stack_set_name = aws_cloudformation_stack_set.member_baseline.name
-  call_as        = var.call_as
-  region         = each.value
+  stack_set_name            = aws_cloudformation_stack_set.member_baseline.name
+  call_as                   = var.call_as
+  stack_set_instance_region = each.value
 
   deployment_targets {
     organizational_unit_ids = var.target_organizational_unit_ids
