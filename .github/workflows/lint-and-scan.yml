@@ -46,7 +46,7 @@ jobs:
         # Node.js runtime deprecations either. Dependabot (see
         # .github/dependabot.yml) will surface newer checkov-action
         # releases if/when upstream modernizes that wrapper.
-        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # v12.3123.0
+        uses: bridgecrewio/checkov-action@444c9db6fa75e2d9c19ebf1fde7322089be9009e # v12.3125.0
         with:
           directory: cloudformation
           framework: cloudformation
@@ -56,7 +56,7 @@ jobs:
         # Lives under terraform/ (so the directory scan above and the
         # Terraform job's framework filter both skip it), but it's a
         # CloudFormation template that gets deployed into every member account.
-        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # v12.3123.0
+        uses: bridgecrewio/checkov-action@444c9db6fa75e2d9c19ebf1fde7322089be9009e # v12.3125.0
         with:
           file: terraform/security-baseline-new-accounts/member-baseline/baseline-template.yaml
           framework: cloudformation
@@ -137,7 +137,7 @@ jobs:
           done
 
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # v12.3123.0
+        uses: bridgecrewio/checkov-action@444c9db6fa75e2d9c19ebf1fde7322089be9009e # v12.3125.0
         with:
           directory: terraform
           framework: terraform
